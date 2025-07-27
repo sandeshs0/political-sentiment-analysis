@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ne">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Nepali Sentiment Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  </head>
+  <body class="bg-gray-50 text-gray-800 font-sans min-h-screen">
+    <div class="max-w-4xl mx-auto py-10 px-4">
+      <h1
+        class="text-3xl md:text-4xl font-bold text-center text-indigo-600 mb-8"
+      >
+        📊 Nepali Political Sentiment Analysis
+      </h1>
+
+      <!-- Search Form -->
+      <form
+        method="POST"
+        class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10"
+        onsubmit="showLoading()"
+      >
+        <input
+          type="text"
+          name="keyword"
+          placeholder="Search keyword (e.g., बालेन शाह)"
+          required
+          class="w-full sm:w-2/3 px-4 py-2 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+        <button
+          type="submit"
+          id="searchBtn"
+          class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded shadow"
+        >
+          Analyze
+        </button>
+      </form>
+
+      <!-- Loading Indicator -->
+      <div id="loadingIndicator" class="hidden text-center mb-8">
+        <div class="inline-flex items-center px-4 py-2 font-semibold leading-6 text-sm shadow rounded-md text-white bg-indigo-500">
+          <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Analyzing tweets...
+        </div>
+      </div>
+
+      {% if error_message %}
+      <!-- Error Message -->
+      <div class="bg-red-50 border-l-4 border-red-400 p-4 mb-8">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+            </svg>
+          </div>
+          <div class="ml-3">
+            <h3 class="text-sm font-medium text-red-800">
+              {{ error_message }}
+            </h3>
+            {% if "Rate Limit" in error_message %}
+            <div class="mt-2 text-sm text-red-700">
+              <p><strong>What does this mean?</strong></p>
+              <ul class="list-disc list-inside mt-1">
+                <li>Twitter limits the number of requests per 15-minute window</li>
+                <li>You've reached the maximum allowed requests</li>
+                <li>Please wait 15 minutes before searching again</li>
+                <li>This helps prevent spam and protects Twitter's servers</li>
+              </ul>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if sentiment_counts %}
+      
+      <!-- Analytics Summary Cards -->
+      {% if analytics %}
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div class="bg-white shadow rounded-lg p-6 text-center">
+          <h3 class="text-sm font-medium text-gray-500">Total Tweets</h3>
+          <p class="text-2xl font-bold text-indigo-600">{{ analytics.summary.total_tweets }}</p>
+        </div>
+        <div class="bg-white shadow rounded-lg p-6 text-center">
+          <h3 class="text-sm font-medium text-gray-500">Avg Confidence</h3>
+          <p class="text-2xl font-bold text-green-600">{{ analytics.summary.avg_confidence }}</p>
+        </div>
+        <div class="bg-white shadow rounded-lg p-6 text-center">
+          <h3 class="text-sm font-medium text-gray-500">Dominant Sentiment</h3>
+          <p class="text-2xl font-bold text-purple-600">{{ analytics.summary.most_common_sentiment }}</p>
+        </div>
+        <div class="bg-white shadow rounded-lg p-6 text-center">
+          <h3 class="text-sm font-medium text-gray-500">Confidence Range</h3>
+          <p class="text-2xl font-bold text-blue-600">{{ analytics.summary.confidence_range }}</p>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Sentiment Summary -->
+      <div class="bg-white shadow rounded-lg p-6 mb-8">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold text-indigo-700">
+            🔍 Results for "{{ keyword }}"
+          </h2>
+          <a href="/export/{{ keyword }}" 
+             class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow text-sm">
+            📊 Export CSV
+          </a>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+          {% for sentiment, ratio in sentiment_counts.items() %}
+          <div class="bg-indigo-50 p-4 rounded">
+            <h3 class="text-lg font-medium text-gray-700">{{ sentiment }}</h3>
+            <p class="text-2xl font-bold text-indigo-600">
+              {{ '%.1f' | format(ratio * 100) }}%
+            </p>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Charts Section -->
+      {% if analytics %}
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        
+        <!-- Sentiment Distribution Pie Chart -->
+        <div class="bg-white shadow rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">📊 Sentiment Distribution</h3>
+          <div class="flex justify-center">
+            <canvas id="sentimentPieChart" width="300" height="300"></canvas>
+          </div>
+        </div>
+
+        <!-- Confidence Distribution Histogram -->
+        <div class="bg-white shadow rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">📈 Confidence Score Distribution</h3>
+          <canvas id="confidenceHistogram" width="400" height="300"></canvas>
+        </div>
+
+        <!-- Average Confidence by Sentiment -->
+        <div class="bg-white shadow rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">🎯 Average Confidence by Sentiment</h3>
+          <canvas id="avgConfidenceChart" width="400" height="300"></canvas>
+        </div>
+
+        <!-- Tweet Length Analysis -->
+        <div class="bg-white shadow rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">📏 Average Tweet Length by Sentiment</h3>
+          <canvas id="tweetLengthChart" width="400" height="300"></canvas>
+        </div>
+
+      </div>
+
+      <!-- Word Clouds Section -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        
+        {% if overall_wordcloud %}
+        <div class="bg-white shadow rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">☁️ Overall Word Cloud</h3>
+          <img src="data:image/png;base64,{{ overall_wordcloud }}" alt="Overall Word Cloud" class="w-full h-48 object-contain">
+        </div>
+        {% endif %}
+
+        {% if positive_wordcloud %}
+        <div class="bg-green-50 shadow rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-green-800 mb-4">🟢 Positive Words</h3>
+          <img src="data:image/png;base64,{{ positive_wordcloud }}" alt="Positive Word Cloud" class="w-full h-48 object-contain">
+        </div>
+        {% endif %}
+
+        {% if negative_wordcloud %}
+        <div class="bg-red-50 shadow rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-red-800 mb-4">🔴 Negative Words</h3>
+          <img src="data:image/png;base64,{{ negative_wordcloud }}" alt="Negative Word Cloud" class="w-full h-48 object-contain">
+        </div>
+        {% endif %}
+
+      </div>
+
+      <!-- Top Words Analysis -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        
+        <div class="bg-white shadow rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">🔤 Most Common Words</h3>
+          <div class="space-y-2">
+            {% for word, count in analytics.top_words.items() %}
+            <div class="flex justify-between items-center">
+              <span class="text-sm font-medium">{{ word }}</span>
+              <span class="bg-gray-100 px-2 py-1 rounded text-xs">{{ count }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="bg-green-50 shadow rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-green-800 mb-4">✅ Positive Keywords</h3>
+          <div class="space-y-2">
+            {% for word, count in analytics.positive_words.items() %}
+            <div class="flex justify-between items-center">
+              <span class="text-sm font-medium">{{ word }}</span>
+              <span class="bg-green-100 px-2 py-1 rounded text-xs">{{ count }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="bg-red-50 shadow rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-red-800 mb-4">❌ Negative Keywords</h3>
+          <div class="space-y-2">
+            {% for word, count in analytics.negative_words.items() %}
+            <div class="flex justify-between items-center">
+              <span class="text-sm font-medium">{{ word }}</span>
+              <span class="bg-red-100 px-2 py-1 rounded text-xs">{{ count }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+      </div>
+      {% endif %}
+
+      <!-- Top Positive and Negative Tweets -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        
+        <!-- Top Positive Tweets -->
+        <div class="bg-green-50 border border-green-200 rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-green-700 mb-4">
+            🟢 Top Positive Tweets ({{ top_positive|length }})
+          </h3>
+          <div class="space-y-3 max-h-96 overflow-y-auto">
+            {% for tweet in top_positive %}
+            <div class="bg-white p-3 rounded border-l-4 border-green-400">
+              <p class="text-gray-800 text-sm mb-2">{{ tweet.text }}</p>
+              <div class="flex justify-between items-center text-xs">
+                <span class="bg-green-100 text-green-800 px-2 py-1 rounded">
+                  Confidence: {{ tweet.confidence }}
+                </span>
+                <span class="text-green-600 font-medium">{{ tweet.sentiment }}</span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Top Negative Tweets -->
+        <div class="bg-red-50 border border-red-200 rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-red-700 mb-4">
+            🔴 Top Negative Tweets ({{ top_negative|length }})
+          </h3>
+          <div class="space-y-3 max-h-96 overflow-y-auto">
+            {% for tweet in top_negative %}
+            <div class="bg-white p-3 rounded border-l-4 border-red-400">
+              <p class="text-gray-800 text-sm mb-2">{{ tweet.text }}</p>
+              <div class="flex justify-between items-center text-xs">
+                <span class="bg-red-100 text-red-800 px-2 py-1 rounded">
+                  Confidence: {{ tweet.confidence }}
+                </span>
+                <span class="text-red-600 font-medium">{{ tweet.sentiment }}</span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Chart.js Scripts -->
+    {% if analytics %}
+    <script>
+      // Sentiment Distribution Pie Chart
+      const sentimentCtx = document.getElementById('sentimentPieChart').getContext('2d');
+      const sentimentData = {{ sentiment_counts | tojson }};
+      
+      new Chart(sentimentCtx, {
+        type: 'pie',
+        data: {
+          labels: Object.keys(sentimentData).map(key => key.charAt(0).toUpperCase() + key.slice(1)),
+          datasets: [{
+            data: Object.values(sentimentData).map(val => (val * 100).toFixed(1)),
+            backgroundColor: [
+              '#22c55e',  // Positive - Green
+              '#ef4444',  // Negative - Red  
+              '#6b7280'   // Neutral - Gray
+            ],
+            borderWidth: 2,
+            borderColor: '#ffffff'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: {
+                padding: 20,
+                font: {
+                  size: 12
+                }
+              }
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return context.label + ': ' + context.parsed + '%';
+                }
+              }
+            }
+          }
+        }
+      });
+
+      // Confidence Distribution Histogram
+      const confidenceCtx = document.getElementById('confidenceHistogram').getContext('2d');
+      const confidenceData = {{ analytics.confidence_bins | tojson }};
+      
+      // Create bins for histogram
+      const bins = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+      const binCounts = new Array(bins.length - 1).fill(0);
+      
+      confidenceData.forEach(score => {
+        for (let i = 0; i < bins.length - 1; i++) {
+          if (score >= bins[i] && score < bins[i + 1]) {
+            binCounts[i]++;
+            break;
+          }
+        }
+      });
+      
+      new Chart(confidenceCtx, {
+        type: 'bar',
+        data: {
+          labels: bins.slice(0, -1).map((bin, i) => `${bin.toFixed(1)}-${bins[i+1].toFixed(1)}`),
+          datasets: [{
+            label: 'Number of Tweets',
+            data: binCounts,
+            backgroundColor: 'rgba(59, 130, 246, 0.6)',
+            borderColor: 'rgba(59, 130, 246, 1)',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Number of Tweets'
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Confidence Score Range'
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            }
+          }
+        }
+      });
+
+      // Average Confidence by Sentiment
+      const avgConfidenceCtx = document.getElementById('avgConfidenceChart').getContext('2d');
+      const avgConfidenceData = {{ analytics.avg_confidence | tojson }};
+      
+      new Chart(avgConfidenceCtx, {
+        type: 'bar',
+        data: {
+          labels: ['Positive', 'Negative', 'Neutral'],
+          datasets: [{
+            label: 'Average Confidence',
+            data: [
+              avgConfidenceData.positive || 0,
+              avgConfidenceData.negative || 0,
+              avgConfidenceData.neutral || 0
+            ],
+            backgroundColor: [
+              'rgba(34, 197, 94, 0.6)',   // Green for positive
+              'rgba(239, 68, 68, 0.6)',   // Red for negative
+              'rgba(107, 114, 128, 0.6)'  // Gray for neutral
+            ],
+            borderColor: [
+              'rgba(34, 197, 94, 1)',
+              'rgba(239, 68, 68, 1)',
+              'rgba(107, 114, 128, 1)'
+            ],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 1,
+              title: {
+                display: true,
+                text: 'Average Confidence Score'
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            }
+          }
+        }
+      });
+
+      // Tweet Length Analysis
+      const tweetLengthCtx = document.getElementById('tweetLengthChart').getContext('2d');
+      const tweetLengthData = {{ analytics.avg_tweet_length | tojson }};
+      
+      new Chart(tweetLengthCtx, {
+        type: 'bar',
+        data: {
+          labels: ['Positive', 'Negative', 'Neutral'],
+          datasets: [{
+            label: 'Average Tweet Length',
+            data: [
+              tweetLengthData.positive || 0,
+              tweetLengthData.negative || 0,
+              tweetLengthData.neutral || 0
+            ],
+            backgroundColor: [
+              'rgba(34, 197, 94, 0.6)',
+              'rgba(239, 68, 68, 0.6)',
+              'rgba(107, 114, 128, 0.6)'
+            ],
+            borderColor: [
+              'rgba(34, 197, 94, 1)',
+              'rgba(239, 68, 68, 1)',
+              'rgba(107, 114, 128, 1)'
+            ],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Average Characters'
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            }
+          }
+        }
+      });
+    </script>
+    {% endif %}
+
+    <!-- General JavaScript -->
+    <script>
+      // Loading indicator function (available always)
+      function showLoading() {
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const searchBtn = document.getElementById('searchBtn');
+        
+        if (loadingIndicator) {
+          loadingIndicator.classList.remove('hidden');
+        }
+        if (searchBtn) {
+          searchBtn.disabled = true;
+          searchBtn.innerHTML = 'Analyzing...';
+        }
+      }
+    </script>
+  </body>
+</html>
