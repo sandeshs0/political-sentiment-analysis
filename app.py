@@ -15,6 +15,7 @@ import seaborn as sns
 from wordcloud import WordCloud
 import numpy as np
 from datetime import datetime
+import os
 
 app = Flask(__name__)
 
@@ -25,14 +26,27 @@ logging.getLogger('werkzeug').setLevel(logging.ERROR)
 BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAAO0c3AEAAAAA5K1F00mhGPcO5mHbRTe87xJHBMU%3DyWh4fIbVLFXmBz6jtXBRKzjanpLL3FugcxHo3KuNCnJK7HQCeL"
 client = tweepy.Client(bearer_token=BEARER_TOKEN)
 
+# Model initialization with error handling
+try:
+    model_path = "nepali-sentiment-model-xlmr"
+    sentiment_pipeline = pipeline("text-classification", model=model_path, tokenizer=model_path)
+    label_map = {"LABEL_0": "Neutral", "LABEL_1": "Positive", "LABEL_2": "Negative"}
+    print(" Sentiment model loaded successfully")
+except Exception as e:
+    print(f"Error loading sentiment model: {e}")
+    sentiment_pipeline = None
 
-model_path = "nepali-sentiment-model-xlmr"
-sentiment_pipeline = pipeline("text-classification", model=model_path, tokenizer=model_path)
-label_map = {"LABEL_0": "Neutral", "LABEL_1": "Positive", "LABEL_2": "Negative"}
-
-
-with open("nepali_stopwords.txt", "r", encoding="utf-8") as f:
-    stopwords = set(f.read().splitlines())
+# Stopwords loading with error handling
+try:
+    with open("nepali_stopwords.txt", "r", encoding="utf-8") as f:
+        stopwords = set(f.read().splitlines())
+    print(" Stopwords loaded successfully")
+except FileNotFoundError:
+    print(" nepali_stopwords.txt not found. Using empty stopwords set.")
+    stopwords = set()
+except Exception as e:
+    print(f" Error loading stopwords: {e}")
+    stopwords = set()
 
 
 class TwitterRateLimitError(Exception):
@@ -74,9 +88,16 @@ def clean_tweet(text):
 
 
 def predict_sentiment(text):
-    result = sentiment_pipeline(text)[0]
-    label = label_map.get(result['label'], result['label'])
-    return label, round(result['score'], 2)
+    if sentiment_pipeline is None:
+        return "Unknown", 0.0
+    
+    try:
+        result = sentiment_pipeline(text)[0]
+        label = label_map.get(result['label'], result['label'])
+        return label, round(result['score'], 2)
+    except Exception as e:
+        print(f"Error in sentiment prediction: {e}")
+        return "Unknown", 0.0
 
 
 def generate_analytics(df):
@@ -149,8 +170,6 @@ def generate_wordcloud_image(text_data, sentiment_type):
         }
         
         colors = color_schemes.get(sentiment_type, color_schemes['overall'])
-        
-        
         wordcloud = WordCloud(
             width=400, 
             height=200, 
@@ -181,7 +200,7 @@ def generate_wordcloud_image(text_data, sentiment_type):
 @app.errorhandler(TwitterRateLimitError)
 def handle_rate_limit_error(e):
     return render_template("index.html", 
-                         error_message="⚠️ Twitter API Rate Limit Exceeded! Please wait 15 minutes before trying again.")
+                         error_message=" Twitter API Rate Limit Exceeded! Please wait 15 minutes before trying again.")
 
 @app.errorhandler(TwitterServerError)
 def handle_server_error(e):
@@ -296,5 +315,177 @@ def export_data(keyword):
     except Exception as e:
         return f"Export failed: {str(e)}", 500
 
+def validate_required_files():
+    """Check if all required files exist"""
+    required_files = [
+        "nepali_stopwords.txt",
+        "templates/index.html"
+    ]
+    
+    required_dirs = [
+        "nepali-sentiment-model-xlmr",
+        "templates"
+    ]
+    
+    missing_items = []
+    
+    for file_path in required_files:
+        if not os.path.exists(file_path):
+            missing_items.append(file_path)
+    
+    for dir_path in required_dirs:
+        if not os.path.exists(dir_path):
+            missing_items.append(dir_path)
+    
+    if missing_items:
+        print(f"❌ Missing required files/directories: {missing_items}")
+        return False
+    
+    print("✅ All required files found")
+    return True
+
+def create_missing_files():
+    """Create basic required files if they don't exist"""
+    # Create templates directory if it doesn't exist
+    os.makedirs("templates", exist_ok=True)
+    
+    # Create basic index.html if it doesn't exist
+    if not os.path.exists("templates/index.html"):
+        basic_html = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nepali Political Sentiment Analysis</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .error { color: red; background: #ffebee; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .form-group { margin: 20px 0; }
+        input[type="text"] { padding: 10px; width: 300px; border: 1px solid #ddd; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
+        .results { margin-top: 30px; }
+        .wordcloud { text-align: center; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏛️ Nepali Political Sentiment Analysis</h1>
+        
+        {% if error_message %}
+            <div class="error">{{ error_message }}</div>
+        {% endif %}
+        
+        <form method="POST">
+            <div class="form-group">
+                <label for="keyword">Enter Political Keyword (in Nepali):</label><br>
+                <input type="text" name="keyword" id="keyword" placeholder="राजनीति, सरकार, नेता..." value="{{ keyword or '' }}" required>
+                <button type="submit">🔍 Analyze Sentiment</button>
+            </div>
+        </form>
+        
+        {% if sentiment_counts %}
+        <div class="results">
+            <h2>📊 Analysis Results for "{{ keyword }}"</h2>
+            
+            <h3>Sentiment Distribution:</h3>
+            {% for sentiment, percentage in sentiment_counts.items() %}
+                <p><strong>{{ sentiment }}:</strong> {{ "%.1f"|format(percentage * 100) }}%</p>
+            {% endfor %}
+            
+            {% if overall_wordcloud %}
+            <div class="wordcloud">
+                <h3>📝 Word Cloud</h3>
+                <img src="data:image/png;base64,{{ overall_wordcloud }}" alt="Word Cloud">
+            </div>
+            {% endif %}
+            
+            {% if top_positive %}
+            <h3>✅ Most Positive Tweets:</h3>
+            <ul>
+                {% for tweet in top_positive[:5] %}
+                    <li>{{ tweet.text }} (Confidence: {{ tweet.confidence }})</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            
+            {% if top_negative %}
+            <h3>❌ Most Negative Tweets:</h3>
+            <ul>
+                {% for tweet in top_negative[:5] %}
+                    <li>{{ tweet.text }} (Confidence: {{ tweet.confidence }})</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            
+            <p><a href="/export/{{ keyword }}">📥 Download as CSV</a></p>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>'''
+        with open("templates/index.html", "w", encoding="utf-8") as f:
+            f.write(basic_html)
+        print("✅ Created templates/index.html")
+    
+    # Create basic stopwords file if it doesn't exist
+    if not os.path.exists("nepali_stopwords.txt"):
+        basic_stopwords = """र
+को
+मा
+छ
+हो
+गर्न
+भन्न
+हुन
+ले
+लाई
+नि
+त
+पनि
+अनि
+यो
+त्यो
+एक
+दुई
+तीन
+यस
+त्यस
+अब
+फेरि
+बाट
+सम्म
+भन्दा
+जना
+लागि
+द्वारा
+संग
+प्रति
+उनी
+उनको
+उनका
+हामी
+हाम्रो
+तपाई
+तपाईको
+म
+मेरो
+तिमी
+तिम्रो"""
+        with open("nepali_stopwords.txt", "w", encoding="utf-8") as f:
+            f.write(basic_stopwords)
+        print("✅ Created nepali_stopwords.txt")
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    print("🚀 Starting Nepali Political Sentiment Analysis App...")
+    
+    # Create missing files
+    create_missing_files()
+    
+    # Validate required files
+    if not validate_required_files():
+        print("❌ Some required files are missing. Created basic versions.")
+        print("⚠️  Note: You may need to add your trained model in 'nepali-sentiment-model-xlmr' directory")
+    
+    print("🌐 Starting Flask server...")
+    app.run(debug=True, host="127.0.0.1", port=5000)
