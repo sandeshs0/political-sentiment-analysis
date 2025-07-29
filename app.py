@@ -8,14 +8,37 @@ import json
 from collections import Counter
 import base64
 import io
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import seaborn as sns
-from wordcloud import WordCloud
+
+# Optional matplotlib import with error handling
+try:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    MATPLOTLIB_AVAILABLE = True
+except Exception as e:
+    print(f"Warning: matplotlib not available: {e}")
+    MATPLOTLIB_AVAILABLE = False
+
+# Optional wordcloud import
+try:
+    from wordcloud import WordCloud
+    WORDCLOUD_AVAILABLE = True
+except Exception as e:
+    print(f"Warning: wordcloud not available: {e}")
+    WORDCLOUD_AVAILABLE = False
+
 import numpy as np
 from datetime import datetime
 import os
+
+# Import news scraper
+try:
+    from news_scraper import UnifiedNewsScraper
+    NEWS_SCRAPER_AVAILABLE = True
+except Exception as e:
+    print(f"Warning: news scraper not available: {e}")
+    NEWS_SCRAPER_AVAILABLE = False
 
 app = Flask(__name__)
 
@@ -23,7 +46,7 @@ app = Flask(__name__)
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
 
-BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAAO0c3AEAAAAA5K1F00mhGPcO5mHbRTe87xJHBMU%3DyWh4fIbVLFXmBz6jtXBRKzjanpLL3FugcxHo3KuNCnJK7HQCeL"
+BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAAPYN3gEAAAAA87wcMXWc%2BLcG4iVYqvh7sVy4xvc%3DYhik3JbYsYi5hrLx46C2jWDDSFE6VEVlcZaTlv7512wVmTPKPR"
 client = tweepy.Client(bearer_token=BEARER_TOKEN)
 
 # Model initialization with error handling
@@ -31,10 +54,23 @@ try:
     model_path = "nepali-sentiment-model-xlmr"
     sentiment_pipeline = pipeline("text-classification", model=model_path, tokenizer=model_path)
     label_map = {"LABEL_0": "Neutral", "LABEL_1": "Positive", "LABEL_2": "Negative"}
-    print(" Sentiment model loaded successfully")
+    print("✅ Sentiment model loaded successfully")
 except Exception as e:
     print(f"Error loading sentiment model: {e}")
     sentiment_pipeline = None
+
+# Emotion model initialization
+try:
+    emotion_model_path = "nepali-emotion-model-xlmr"
+    emotion_pipeline = pipeline("text-classification", model=emotion_model_path, tokenizer=emotion_model_path)
+    emotion_label_map = {
+        "LABEL_0": "anger", "LABEL_1": "fear", "LABEL_2": "joy",
+        "LABEL_3": "love", "LABEL_4": "sadness", "LABEL_5": "surprise"
+    }
+    print("✅ Emotion model loaded successfully")
+except Exception as e:
+    print(f"Error loading emotion model: {e}")
+    emotion_pipeline = None
 
 # Stopwords loading with error handling
 try:
@@ -59,11 +95,32 @@ class TwitterAPIError(Exception):
     pass
 
 
-def fetch_tweets(keyword, max_results=50):
+def fetch_tweets(keyword, max_results=10):
     try:
         query = f"{keyword} lang:ne -is:retweet"
-        tweets = client.search_recent_tweets(query=query, tweet_fields=["lang", "created_at"], max_results=max_results)
-        return [tweet.text for tweet in tweets.data] if tweets.data else []
+        tweets = client.search_recent_tweets(
+            query=query, 
+            tweet_fields=["lang", "created_at", "author_id", "public_metrics"], 
+            max_results=max_results
+        )
+        
+        if not tweets.data:
+            return []
+        
+        # Return tweet objects with metadata
+        tweet_objects = []
+        for tweet in tweets.data:
+            tweet_url = f"https://twitter.com/i/status/{tweet.id}"
+            tweet_objects.append({
+                'id': tweet.id,
+                'text': tweet.text,
+                'url': tweet_url,
+                'created_at': tweet.created_at,
+                'author_id': tweet.author_id
+            })
+        
+        return tweet_objects
+        
     except tweepy.TooManyRequests:
         raise TwitterRateLimitError("Rate limit exceeded")
     except tweepy.TwitterServerError:
@@ -100,15 +157,44 @@ def predict_sentiment(text):
         return "Unknown", 0.0
 
 
+def predict_emotion(text):
+    if emotion_pipeline is None:
+        return "Unknown", 0.0
+    
+    try:
+        result = emotion_pipeline(text)[0]
+        label = emotion_label_map.get(result['label'], result['label'])
+        return label, round(result['score'], 2)
+    except Exception as e:
+        print(f"Error in emotion prediction: {e}")
+        return "Unknown", 0.0
+
+
 def generate_analytics(df):
     """Generate comprehensive analytics from the tweet data"""
     analytics = {}
     
-    
+    # Sentiment analysis
     sentiment_counts = df["sentiment"].value_counts(normalize=True).to_dict()
     analytics['sentiment_distribution'] = sentiment_counts
     
+    # Emotion analysis (if emotion column exists)
+    if "emotion" in df.columns:
+        emotion_counts = df["emotion"].value_counts(normalize=True).to_dict()
+        analytics['emotion_distribution'] = emotion_counts
+        
+        # Emotion confidence stats
+        analytics['avg_emotion_confidence'] = {
+            'overall': round(df['emotion_confidence'].mean(), 2),
+            'anger': round(df[df['emotion'] == 'anger']['emotion_confidence'].mean(), 2) if len(df[df['emotion'] == 'anger']) > 0 else 0,
+            'fear': round(df[df['emotion'] == 'fear']['emotion_confidence'].mean(), 2) if len(df[df['emotion'] == 'fear']) > 0 else 0,
+            'joy': round(df[df['emotion'] == 'joy']['emotion_confidence'].mean(), 2) if len(df[df['emotion'] == 'joy']) > 0 else 0,
+            'love': round(df[df['emotion'] == 'love']['emotion_confidence'].mean(), 2) if len(df[df['emotion'] == 'love']) > 0 else 0,
+            'sadness': round(df[df['emotion'] == 'sadness']['emotion_confidence'].mean(), 2) if len(df[df['emotion'] == 'sadness']) > 0 else 0,
+            'surprise': round(df[df['emotion'] == 'surprise']['emotion_confidence'].mean(), 2) if len(df[df['emotion'] == 'surprise']) > 0 else 0
+        }
     
+    # Sentiment confidence stats
     analytics['avg_confidence'] = {
         'overall': round(df['confidence'].mean(), 2),
         'positive': round(df[df['sentiment'] == 'Positive']['confidence'].mean(), 2) if len(df[df['sentiment'] == 'Positive']) > 0 else 0,
@@ -116,10 +202,10 @@ def generate_analytics(df):
         'neutral': round(df[df['sentiment'] == 'Neutral']['confidence'].mean(), 2) if len(df[df['sentiment'] == 'Neutral']) > 0 else 0
     }
     
-    
+    # Confidence distribution
     analytics['confidence_bins'] = df['confidence'].tolist()
     
-    
+    # Tweet length analysis
     df['tweet_length'] = df['text'].str.len()
     analytics['avg_tweet_length'] = {
         'overall': round(df['tweet_length'].mean(), 1),
@@ -128,19 +214,19 @@ def generate_analytics(df):
         'neutral': round(df[df['sentiment'] == 'Neutral']['tweet_length'].mean(), 1) if len(df[df['sentiment'] == 'Neutral']) > 0 else 0
     }
     
-    
+    # Word frequency analysis
     all_words = ' '.join(df['text']).split()
     word_freq = Counter(all_words)
     analytics['top_words'] = dict(word_freq.most_common(10))
     
-    
+    # Sentiment-specific word analysis
     positive_words = ' '.join(df[df['sentiment'] == 'Positive']['text']).split() if len(df[df['sentiment'] == 'Positive']) > 0 else []
     negative_words = ' '.join(df[df['sentiment'] == 'Negative']['text']).split() if len(df[df['sentiment'] == 'Negative']) > 0 else []
     
     analytics['positive_words'] = dict(Counter(positive_words).most_common(5))
     analytics['negative_words'] = dict(Counter(negative_words).most_common(5))
     
-    
+    # Summary statistics
     analytics['summary'] = {
         'total_tweets': len(df),
         'avg_confidence': analytics['avg_confidence']['overall'],
@@ -148,11 +234,16 @@ def generate_analytics(df):
         'confidence_range': f"{df['confidence'].min():.2f} - {df['confidence'].max():.2f}"
     }
     
+    # Add emotion summary if available
+    if "emotion" in df.columns:
+        analytics['summary']['most_common_emotion'] = df['emotion'].mode().iloc[0] if len(df) > 0 else 'Unknown'
+        analytics['summary']['avg_emotion_confidence'] = analytics['avg_emotion_confidence']['overall']
+    
     return analytics
 
 def generate_wordcloud_image(text_data, sentiment_type):
     """Generate word cloud image and return as base64 string"""
-    if not text_data:
+    if not text_data or not WORDCLOUD_AVAILABLE or not MATPLOTLIB_AVAILABLE:
         return None
         
     try:
@@ -226,11 +317,24 @@ def index():
             tweets = fetch_tweets(keyword, max_results=50)
 
             results = []
-            for t in tweets:
-                cleaned = clean_tweet(t)
+            for tweet_obj in tweets:
+                cleaned = clean_tweet(tweet_obj['text'])
                 if cleaned:
-                    label, score = predict_sentiment(cleaned)
-                    results.append({"text": cleaned, "sentiment": label, "confidence": score})
+                    sentiment_label, sentiment_score = predict_sentiment(cleaned)
+                    emotion_label, emotion_score = predict_emotion(cleaned)
+                    
+                    results.append({
+                        "text": cleaned,
+                        "original_text": tweet_obj['text'],
+                        "tweet_id": tweet_obj['id'],
+                        "tweet_url": tweet_obj['url'],
+                        "created_at": tweet_obj['created_at'],
+                        "author_id": tweet_obj['author_id'],
+                        "sentiment": sentiment_label, 
+                        "confidence": sentiment_score,
+                        "emotion": emotion_label,
+                        "emotion_confidence": emotion_score
+                    })
 
             if not results:
                 return render_template("index.html", 
@@ -240,26 +344,45 @@ def index():
             df = pd.DataFrame(results)
 
             sentiment_counts = df["sentiment"].value_counts(normalize=True).to_dict()
+            emotion_counts = df["emotion"].value_counts(normalize=True).to_dict() if "emotion" in df.columns else {}
+            
             top_positive = df[df["sentiment"] == "Positive"].sort_values("confidence", ascending=False).head(10)
             top_negative = df[df["sentiment"] == "Negative"].sort_values("confidence", ascending=False).head(10)
-
             
+            # Get top emotion examples
+            top_emotions = {}
+            for emotion in ["anger", "fear", "joy", "love", "sadness", "surprise"]:
+                emotion_df = df[df["emotion"] == emotion]
+                if len(emotion_df) > 0:
+                    top_emotions[emotion] = emotion_df.sort_values("emotion_confidence", ascending=False).head(5).to_dict("records")
+
+            # Generate analytics
             analytics = generate_analytics(df)
 
-            
+            # Generate word clouds
             overall_wordcloud = generate_wordcloud_image(df['text'].tolist(), 'overall')
             positive_wordcloud = generate_wordcloud_image(df[df['sentiment'] == 'Positive']['text'].tolist(), 'positive')
             negative_wordcloud = generate_wordcloud_image(df[df['sentiment'] == 'Negative']['text'].tolist(), 'negative')
+            
+            # Generate emotion-specific word clouds
+            emotion_wordclouds = {}
+            for emotion in ["anger", "fear", "joy", "love", "sadness", "surprise"]:
+                emotion_df = df[df["emotion"] == emotion]
+                if len(emotion_df) > 0:
+                    emotion_wordclouds[emotion] = generate_wordcloud_image(emotion_df['text'].tolist(), emotion)
 
             return render_template("index.html",
                                    keyword=keyword,
                                    sentiment_counts=sentiment_counts,
+                                   emotion_counts=emotion_counts,
                                    top_positive=top_positive.to_dict("records"),
                                    top_negative=top_negative.to_dict("records"),
+                                   top_emotions=top_emotions,
                                    analytics=analytics,
                                    overall_wordcloud=overall_wordcloud,
                                    positive_wordcloud=positive_wordcloud,
-                                   negative_wordcloud=negative_wordcloud)
+                                   negative_wordcloud=negative_wordcloud,
+                                   emotion_wordclouds=emotion_wordclouds)
         
         except TwitterRateLimitError:
             error_message = " Twitter API Rate Limit Exceeded! Please wait 15 minutes before trying again."
@@ -276,6 +399,119 @@ def index():
     
     return render_template("index.html")
 
+
+@app.route("/news", methods=["GET", "POST"])
+def news_analysis():
+    if request.method == "POST":
+        sources = request.form.getlist("sources")  # Multiple sources can be selected
+        keywords = request.form.get("keywords", "").strip()
+        max_articles = int(request.form.get("max_articles", 20))
+        
+        if not NEWS_SCRAPER_AVAILABLE:
+            return render_template("news.html", 
+                                 error_message="News scraper is not available. Please check if required dependencies are installed.")
+        
+        try:
+            # Parse keywords
+            keyword_list = [k.strip() for k in keywords.split(',') if k.strip()] if keywords else None
+            
+            # Initialize news scraper
+            scraper = UnifiedNewsScraper(keywords=keyword_list)
+            
+            # Scrape articles
+            if not sources:
+                sources = ['kathmandupost', 'annapurna', 'nagarik']  # Default to all sources
+                
+            all_articles = scraper.scrape_sources(sources, max_articles)
+            
+            # Combine all articles for analysis
+            combined_articles = []
+            for source_articles in all_articles.values():
+                for article in source_articles:
+                    combined_articles.append(article.to_dict())
+            
+            if not combined_articles:
+                return render_template("news.html", 
+                                     sources=sources,
+                                     keywords=keywords,
+                                     error_message="No articles found. Try different sources or keywords.")
+            
+            # Analyze sentiment and emotion for each article
+            results = []
+            for article in combined_articles:
+                # Combine title and content for analysis
+                text_for_analysis = f"{article['title']} {article['full_text']}"
+                cleaned = clean_tweet(text_for_analysis)  # Reuse cleaning function
+                
+                if cleaned:
+                    sentiment_label, sentiment_score = predict_sentiment(cleaned)
+                    emotion_label, emotion_score = predict_emotion(cleaned)
+                    
+                    results.append({
+                        "title": article['title'],
+                        "full_text": article['full_text'],
+                        "url": article['url'],
+                        "source_name": article['source_name'],
+                        "author": article['author'],
+                        "publication_date": article['publication_date'],
+                        "text": cleaned,
+                        "sentiment": sentiment_label,
+                        "confidence": sentiment_score,
+                        "emotion": emotion_label,
+                        "emotion_confidence": emotion_score
+                    })
+            
+            if not results:
+                return render_template("news.html",
+                                     sources=sources,
+                                     keywords=keywords,
+                                     error_message="No articles could be analyzed. Please try different search terms.")
+            
+            df = pd.DataFrame(results)
+            
+            # Generate analytics similar to tweets
+            sentiment_counts = df["sentiment"].value_counts(normalize=True).to_dict()
+            emotion_counts = df["emotion"].value_counts(normalize=True).to_dict() if "emotion" in df.columns else {}
+            
+            # Get top articles by sentiment
+            top_positive = df[df["sentiment"] == "Positive"].sort_values("confidence", ascending=False).head(5)
+            top_negative = df[df["sentiment"] == "Negative"].sort_values("confidence", ascending=False).head(5)
+            
+            # Get top articles by emotion
+            top_emotions = {}
+            for emotion in ["anger", "fear", "joy", "love", "sadness", "surprise"]:
+                emotion_df = df[df["emotion"] == emotion]
+                if len(emotion_df) > 0:
+                    top_emotions[emotion] = emotion_df.sort_values("emotion_confidence", ascending=False).head(3).to_dict("records")
+            
+            # Generate analytics
+            analytics = generate_analytics(df)
+            
+            # Generate word clouds (optional)
+            overall_wordcloud = generate_wordcloud_image(df['text'].tolist(), 'overall')
+            positive_wordcloud = generate_wordcloud_image(df[df['sentiment'] == 'Positive']['text'].tolist(), 'positive')
+            negative_wordcloud = generate_wordcloud_image(df[df['sentiment'] == 'Negative']['text'].tolist(), 'negative')
+            
+            return render_template("news.html",
+                                 sources=sources,
+                                 keywords=keywords,
+                                 sentiment_counts=sentiment_counts,
+                                 emotion_counts=emotion_counts,
+                                 top_positive=top_positive.to_dict("records"),
+                                 top_negative=top_negative.to_dict("records"),
+                                 top_emotions=top_emotions,
+                                 analytics=analytics,
+                                 overall_wordcloud=overall_wordcloud,
+                                 positive_wordcloud=positive_wordcloud,
+                                 negative_wordcloud=negative_wordcloud,
+                                 total_articles=len(results))
+        
+        except Exception as e:
+            error_message = f"Error analyzing news: {str(e)}"
+            return render_template("news.html", sources=sources, keywords=keywords, error_message=error_message)
+    
+    return render_template("news.html")
+
 @app.route("/export/<keyword>")
 def export_data(keyword):
     """Export search results as CSV"""
@@ -287,12 +523,16 @@ def export_data(keyword):
         for t in tweets:
             cleaned = clean_tweet(t)
             if cleaned:
-                label, score = predict_sentiment(cleaned)
+                sentiment_label, sentiment_score = predict_sentiment(cleaned)
+                emotion_label, emotion_score = predict_emotion(cleaned)
+                
                 results.append({
                     "original_text": t,
                     "cleaned_text": cleaned, 
-                    "sentiment": label, 
-                    "confidence": score,
+                    "sentiment": sentiment_label, 
+                    "sentiment_confidence": sentiment_score,
+                    "emotion": emotion_label,
+                    "emotion_confidence": emotion_score,
                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
         
@@ -307,7 +547,7 @@ def export_data(keyword):
         output.seek(0)
         
         response = make_response(output.getvalue())
-        response.headers["Content-Disposition"] = f"attachment; filename=sentiment_analysis_{keyword}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        response.headers["Content-Disposition"] = f"attachment; filename=sentiment_emotion_analysis_{keyword}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         response.headers["Content-type"] = "text/csv"
         
         return response
@@ -324,6 +564,7 @@ def validate_required_files():
     
     required_dirs = [
         "nepali-sentiment-model-xlmr",
+        "nepali-emotion-model-xlmr",
         "templates"
     ]
     

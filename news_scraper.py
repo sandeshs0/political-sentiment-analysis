@@ -1,0 +1,1042 @@
+#!/usr/bin/env python3
+"""Unified News Scraper for Nepali News Sources.
+
+This script combines the functionality of three Scrapy spiders (Annapurna Express,
+Kathmandu Post, and Nagarik News) into a single, standalone Python script that can
+scrape news articles from all three sources and save them in JSON and CSV formats.
+
+The script implements:
+- RSS feed parsing using feedparser
+- Full article content extraction using requests and BeautifulSoup
+- Keyword filtering to find articles containing specific terms
+- Proper data validation and cleaning
+- Multiple fallback strategies for publication date extraction
+- Comprehensive error handling and logging
+- ISO 8601 timestamp formatting
+- Concurrent processing of multiple sources
+
+Usage:
+    python unified_news_scraper.py [--sources SOURCES] [--output-dir DIR] [--format FORMAT] [--keywords KEYWORDS]
+
+Examples:
+    # Scrape all sources
+    python unified_news_scraper.py
+
+    # Scrape specific sources
+    python unified_news_scraper.py --sources kathmandupost,nagarik
+
+    # Filter articles by keywords
+    python unified_news_scraper.py --keywords "KP Oli,government,politics"
+
+    # Custom output directory and format with keyword filtering
+    python unified_news_scraper.py --output-dir data --format both --keywords "Nepal,economy"
+"""
+
+import argparse
+import csv
+import json
+import logging
+import os
+import re
+import sys
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Set, Union
+from urllib.parse import urljoin, urlparse
+
+import feedparser
+import requests
+from bs4 import BeautifulSoup, Tag
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('scraper.log', encoding='utf-8')
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+
+class ArticleItem:
+    """Data structure for news articles.
+    
+    This class represents a standardized format for all news articles
+    collected by the unified scraper. It ensures consistent data structure
+    across different news sources.
+    
+    Attributes:
+        url: The canonical URL of the article.
+        source_name: Name of the news source/publication.
+        title: The article's headline/title.
+        full_text: Complete article content/body text.
+        author: Article author name(s).
+        publication_date: When the article was originally published (ISO 8601).
+        scraped_at: When this article was scraped by our system (ISO 8601).
+        spider_name: Name of the spider that collected this article.
+    """
+    
+    def __init__(self) -> None:
+        """Initialize an empty ArticleItem."""
+        self.url: str = ""
+        self.source_name: str = ""
+        self.title: str = ""
+        self.full_text: str = ""
+        self.author: Optional[str] = None
+        self.publication_date: Optional[str] = None
+        self.scraped_at: str = datetime.now(timezone.utc).isoformat()
+        self.spider_name: str = ""
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the item to a dictionary.
+        
+        Returns:
+            Dictionary representation of the article item.
+        """
+        return {
+            'url': self.url,
+            'source_name': self.source_name,
+            'title': self.title,
+            'full_text': self.full_text,
+            'author': self.author,
+            'publication_date': self.publication_date,
+            'scraped_at': self.scraped_at,
+            'spider_name': self.spider_name
+        }
+    
+    def is_valid(self) -> bool:
+        """Check if the article has all required fields.
+        
+        Returns:
+            True if all essential fields are present and non-empty.
+        """
+        essential_fields = [self.url, self.source_name, self.title, self.full_text]
+        return all(field and field.strip() for field in essential_fields)
+
+
+class BaseNewsScraper:
+    """Base class for news website scrapers.
+    
+    This class provides common functionality for scraping news websites,
+    including RSS feed parsing, content extraction, and data cleaning.
+    """
+    
+    def __init__(self, name: str, source_name: str, rss_url: str, 
+                 allowed_domains: List[str]) -> None:
+        """Initialize the scraper.
+        
+        Args:
+            name: Unique identifier for this scraper.
+            source_name: Display name of the news source.
+            rss_url: RSS feed URL for article discovery.
+            allowed_domains: List of allowed domains for this scraper.
+        """
+        self.name = name
+        self.source_name = source_name
+        self.rss_url = rss_url
+        self.allowed_domains = allowed_domains
+        self.logger = logging.getLogger(f"{__name__}.{name}")
+        
+        # Configure requests session
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'zerdisha_scrapers (+https://github.com/awebisam/zerdisha-scrapy)'
+        })
+    
+    def scrape_articles(self, max_articles: int = 50, keywords: Optional[List[str]] = None) -> List[ArticleItem]:
+        """Scrape articles from the RSS feed.
+        
+        Args:
+            max_articles: Maximum number of articles to scrape.
+            keywords: Optional list of keywords to filter articles. If provided,
+                     only articles containing at least one keyword in title or content will be returned.
+            
+        Returns:
+            List of successfully scraped ArticleItem instances.
+        """
+        self.logger.info(f"Starting {self.name} scraper with RSS feed: {self.rss_url}")
+        if keywords:
+            self.logger.info(f"Filtering articles with keywords: {', '.join(keywords)}")
+        
+        articles: List[ArticleItem] = []
+        
+        try:
+            # Parse RSS feed
+            feed = feedparser.parse(self.rss_url)
+            
+            if feed.bozo:
+                self.logger.warning(f"RSS feed parsing had issues: {feed.bozo_exception}")
+            
+            if not hasattr(feed, 'entries') or not feed.entries:
+                self.logger.error(f"No entries found in RSS feed: {self.rss_url}")
+                return articles
+            
+            self.logger.info(f"Found {len(feed.entries)} articles in RSS feed")
+            
+            # Process articles (limit to max_articles)
+            entries_to_process = feed.entries[:max_articles]
+            
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                future_to_entry = {
+                    executor.submit(self._process_rss_entry, entry): entry 
+                    for entry in entries_to_process
+                }
+                
+                for future in as_completed(future_to_entry):
+                    entry = future_to_entry[future]
+                    try:
+                        article = future.result()
+                        if article and article.is_valid():
+                            # Apply keyword filtering if keywords are provided
+                            if keywords and not self._matches_keywords(article, keywords):
+                                self.logger.debug(f"Article filtered out (no keyword match): {article.title[:50]}...")
+                                continue
+                            
+                            articles.append(article)
+                            self.logger.info(f"Successfully scraped: {article.title[:50]}...")
+                        else:
+                            self.logger.warning(f"Failed to extract valid article from {getattr(entry, 'link', 'unknown URL')}")
+                    except Exception as e:
+                        self.logger.error(f"Error processing entry {getattr(entry, 'link', 'unknown')}: {str(e)}")
+        
+        except Exception as e:
+            self.logger.error(f"Error processing RSS feed {self.rss_url}: {str(e)}")
+        
+        self.logger.info(f"Successfully scraped {len(articles)} articles from {self.name}")
+        return articles
+    
+    def _process_rss_entry(self, entry: Any) -> Optional[ArticleItem]:
+        """Process a single RSS entry and extract the full article.
+        
+        Args:
+            entry: RSS feed entry from feedparser.
+            
+        Returns:
+            ArticleItem if successful, None otherwise.
+        """
+        if not hasattr(entry, 'link') or not entry.link:
+            self.logger.warning("RSS entry missing link, skipping")
+            return None
+        
+        article_url = str(entry.link)
+        rss_title = getattr(entry, 'title', '')
+        
+        # Check if URL is from allowed domains
+        parsed_url = urlparse(article_url)
+        if not any(domain in parsed_url.netloc for domain in self.allowed_domains):
+            self.logger.warning(f"URL not from allowed domains: {article_url}")
+            return None
+        
+        self.logger.debug(f"Processing article: {rss_title[:50]}...")
+        
+        try:
+            # Fetch the article page
+            response = self.session.get(article_url, timeout=30)
+            response.raise_for_status()
+            
+            # Parse the HTML content
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Extract article content using source-specific methods
+            article = self._extract_article_content(soup, article_url, rss_title)
+            
+            if article:
+                # Clean and validate the article
+                self._clean_article(article)
+                
+            return article
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching/parsing article {article_url}: {str(e)}")
+            return None
+    
+    def _extract_article_content(self, soup: BeautifulSoup, url: str, rss_title: str) -> Optional[ArticleItem]:
+        """Extract article content from BeautifulSoup object.
+        
+        This method should be overridden by subclasses to implement
+        source-specific content extraction logic.
+        
+        Args:
+            soup: BeautifulSoup object of the article page.
+            url: URL of the article.
+            rss_title: Title from RSS feed.
+            
+        Returns:
+            ArticleItem if extraction successful, None otherwise.
+        """
+        raise NotImplementedError("Subclasses must implement _extract_article_content")
+    
+    def _clean_article(self, article: ArticleItem) -> None:
+        """Clean and normalize article fields.
+        
+        Args:
+            article: ArticleItem to clean.
+        """
+        # Clean string fields
+        article.title = self._clean_text(article.title)
+        article.full_text = self._clean_text(article.full_text)
+        article.url = article.url.strip()
+        article.source_name = self._clean_text(article.source_name)
+        
+        if article.author:
+            article.author = self._clean_text(article.author)
+        
+        # Set spider name
+        article.spider_name = self.name
+        
+        # Ensure scraped_at is set
+        if not article.scraped_at:
+            article.scraped_at = datetime.now(timezone.utc).isoformat()
+    
+    def _clean_text(self, text: str) -> str:
+        """Clean and normalize text content.
+        
+        Args:
+            text: Text to clean.
+            
+        Returns:
+            Cleaned and normalized text.
+        """
+        if not text:
+            return ""
+        
+        # Strip whitespace and normalize Unicode
+        cleaned = text.strip()
+        cleaned = unicodedata.normalize('NFC', cleaned)
+        
+        # Remove extra whitespace
+        cleaned = re.sub(r'\s+', ' ', cleaned)
+        
+        return cleaned
+    
+    def _extract_publication_date(self, soup: BeautifulSoup, url: str) -> Optional[str]:
+        """Extract publication date from the article page.
+        
+        This method provides a base implementation with common strategies.
+        Subclasses can override or extend this method.
+        
+        Args:
+            soup: BeautifulSoup object of the article page.
+            url: URL of the article.
+            
+        Returns:
+            Publication date in ISO 8601 format, or None if not found.
+        """
+        try:
+            # Try to extract from meta tags first
+            meta_selectors = [
+                'meta[property="article:published_time"]',
+                'meta[name="pubdate"]',
+                'meta[name="publish-date"]',
+                'meta[name="date"]'
+            ]
+            
+            for selector in meta_selectors:
+                meta_tag = soup.select_one(selector)
+                if meta_tag and meta_tag.get('content'):
+                    try:
+                        date_str = meta_tag['content']
+                        parsed_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                        return parsed_date.isoformat()
+                    except ValueError:
+                        continue
+            
+            # Try to extract from time elements
+            time_selectors = [
+                'time[datetime]',
+                '.published-date time',
+                '.post-date time',
+                '.entry-date time'
+            ]
+            
+            for selector in time_selectors:
+                time_element = soup.select_one(selector)
+                if time_element and time_element.get('datetime'):
+                    try:
+                        date_str = time_element['datetime']
+                        parsed_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                        return parsed_date.isoformat()
+                    except ValueError:
+                        continue
+            
+            # Try to extract from common date text patterns
+            date_selectors = [
+                '.published-date', '.post-date', '.entry-date',
+                '.article-date', '.date', '.timestamp'
+            ]
+            
+            for selector in date_selectors:
+                date_element = soup.select_one(selector)
+                if date_element:
+                    date_text = date_element.get_text().strip()
+                    parsed_date = self._parse_date_text(date_text)
+                    if parsed_date:
+                        return parsed_date
+            
+            # Fallback: Extract date from URL structure
+            return self._extract_date_from_url(url)
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting publication date from {url}: {str(e)}")
+            return None
+    
+    def _parse_date_text(self, date_text: str) -> Optional[str]:
+        """Parse date from text using various formats.
+        
+        Args:
+            date_text: Text containing a date.
+            
+        Returns:
+            ISO 8601 formatted date string, or None if parsing fails.
+        """
+        if not date_text:
+            return None
+        
+        # Date patterns to try
+        date_patterns = [
+            r'(\d{4}-\d{2}-\d{2})',  # YYYY-MM-DD
+            r'(\w+ \d{1,2}, \d{4})',  # Month DD, YYYY
+            r'(\d{1,2}/\d{1,2}/\d{4})',  # MM/DD/YYYY or DD/MM/YYYY
+            r'(\d{1,2}-\d{1,2}-\d{4})',  # MM-DD-YYYY or DD-MM-YYYY
+        ]
+        
+        for pattern in date_patterns:
+            match = re.search(pattern, date_text)
+            if match:
+                date_str = match.group(1)
+                
+                # Try different parsing formats
+                formats = ["%Y-%m-%d", "%B %d, %Y", "%b %d, %Y", "%m/%d/%Y", "%d/%m/%Y", "%m-%d-%Y", "%d-%m-%Y"]
+                
+                for fmt in formats:
+                    try:
+                        parsed_date = datetime.strptime(date_str, fmt)
+                        return parsed_date.isoformat()
+                    except ValueError:
+                        continue
+        
+        return None
+    
+    def _extract_date_from_url(self, url: str) -> Optional[str]:
+        """Extract date from URL structure.
+        
+        Args:
+            url: URL to extract date from.
+            
+        Returns:
+            ISO 8601 formatted date string, or None if extraction fails.
+        """
+        # URL date patterns
+        url_patterns = [
+            r'/(\d{4})/(\d{2})/(\d{2})/',  # /YYYY/MM/DD/
+            r'/(\d{4}-\d{2}-\d{2})/',      # /YYYY-MM-DD/
+        ]
+        
+        for pattern in url_patterns:
+            match = re.search(pattern, url)
+            if match:
+                try:
+                    if len(match.groups()) == 3:
+                        year, month, day = match.groups()
+                        date_str = f"{year}-{month}-{day}"
+                    else:
+                        date_str = match.group(1)
+                    
+                    # Validate the date
+                    datetime.strptime(date_str, "%Y-%m-%d")
+                    return date_str
+                except ValueError:
+                    continue
+        
+        return None
+    
+    def _matches_keywords(self, article: ArticleItem, keywords: List[str]) -> bool:
+        """Check if article contains any of the specified keywords.
+        
+        Args:
+            article: ArticleItem to check for keywords.
+            keywords: List of keywords to search for.
+            
+        Returns:
+            True if article contains at least one keyword, False otherwise.
+        """
+        if not keywords:
+            return True
+        
+        # Combine title and content for searching
+        searchable_text = f"{article.title} {article.full_text}".lower()
+        
+        # Check if any keyword is found (case-insensitive)
+        for keyword in keywords:
+            if keyword.lower() in searchable_text:
+                self.logger.debug(f"Keyword '{keyword}' found in article: {article.title[:50]}...")
+                return True
+        
+        return False
+
+
+class KathmanduPostScraper(BaseNewsScraper):
+    """Scraper for The Kathmandu Post."""
+    
+    def __init__(self) -> None:
+        """Initialize Kathmandu Post scraper."""
+        super().__init__(
+            name="kathmandupost",
+            source_name="The Kathmandu Post",
+            rss_url="https://kathmandupost.com/rss",
+            allowed_domains=["kathmandupost.com"]
+        )
+    
+    def _extract_article_content(self, soup: BeautifulSoup, url: str, rss_title: str) -> Optional[ArticleItem]:
+        """Extract article content specific to Kathmandu Post.
+        
+        Args:
+            soup: BeautifulSoup object of the article page.
+            url: URL of the article.
+            rss_title: Title from RSS feed.
+            
+        Returns:
+            ArticleItem if extraction successful, None otherwise.
+        """
+        try:
+            # Extract content paragraphs
+            paragraphs = soup.select('main p')
+            
+            if not paragraphs:
+                self.logger.warning(f"No content found using CSS selector 'main p' for {url}")
+                return None
+            
+            # Extract text from paragraphs
+            paragraph_texts = []
+            for p in paragraphs:
+                text = p.get_text().strip()
+                if text:
+                    paragraph_texts.append(text)
+            
+            if not paragraph_texts:
+                self.logger.warning(f"No meaningful content extracted from {url}")
+                return None
+            
+            full_text = '\n\n'.join(paragraph_texts)
+            
+            # Use RSS title if available, otherwise extract from page
+            title = rss_title
+            if not title:
+                title_element = soup.select_one('h1')
+                title = title_element.get_text().strip() if title_element else ''
+            
+            if not title:
+                self.logger.warning(f"No title found for {url}")
+                return None
+            
+            # Extract author
+            author = None
+            author_element = soup.select_one('.article-author')
+            if author_element:
+                author = author_element.get_text().strip()
+            
+            # Extract publication date
+            publication_date = self._extract_publication_date_kathmandupost(soup, url)
+            
+            # Create article item
+            article = ArticleItem()
+            article.url = url
+            article.source_name = self.source_name
+            article.title = title
+            article.full_text = full_text
+            article.author = author
+            article.publication_date = publication_date
+            
+            return article
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting content from {url}: {str(e)}")
+            return None
+    
+    def _extract_publication_date_kathmandupost(self, soup: BeautifulSoup, url: str) -> Optional[str]:
+        """Extract publication date specific to Kathmandu Post.
+        
+        Args:
+            soup: BeautifulSoup object of the article page.
+            url: URL of the article.
+            
+        Returns:
+            Publication date in ISO 8601 format, or None if not found.
+        """
+        try:
+            # Try to extract from "Published at" text
+            published_elements = soup.select('.updated-time')
+            for element in published_elements:
+                text = element.get_text()
+                if "Published at" in text:
+                    # Extract date part after "Published at"
+                    date_part = text.split("Published at")[1].strip()
+                    if date_part.startswith(":"):
+                        date_part = date_part[1:].strip()
+                    
+                    try:
+                        # Handle format like "July 3, 2025"
+                        parsed_date = datetime.strptime(date_part, "%B %d, %Y")
+                        return parsed_date.isoformat()
+                    except ValueError:
+                        continue
+            
+            # Fallback to base implementation
+            return self._extract_publication_date(soup, url)
+            
+        except Exception as e:
+            self.logger.debug(f"Error in Kathmandu Post specific date extraction: {str(e)}")
+            return self._extract_publication_date(soup, url)
+
+
+class AnnapurnaScraper(BaseNewsScraper):
+    """Scraper for The Annapurna Express."""
+    
+    def __init__(self) -> None:
+        """Initialize Annapurna Express scraper."""
+        super().__init__(
+            name="annapurna",
+            source_name="The Annapurna Express",
+            rss_url="https://theannapurnaexpress.com/rss/",
+            allowed_domains=["theannapurnaexpress.com"]
+        )
+    
+    def _extract_article_content(self, soup: BeautifulSoup, url: str, rss_title: str) -> Optional[ArticleItem]:
+        """Extract article content specific to Annapurna Express.
+        
+        Args:
+            soup: BeautifulSoup object of the article page.
+            url: URL of the article.
+            rss_title: Title from RSS feed.
+            
+        Returns:
+            ArticleItem if extraction successful, None otherwise.
+        """
+        try:
+            # Extract content paragraphs
+            paragraphs = soup.select('.detail__page-content p')
+            
+            if not paragraphs:
+                self.logger.warning(f"No content found using CSS selector '.detail__page-content p' for {url}")
+                return None
+            
+            # Extract text from paragraphs
+            paragraph_texts = []
+            for p in paragraphs:
+                text = p.get_text().strip()
+                if text:
+                    paragraph_texts.append(text)
+            
+            if not paragraph_texts:
+                self.logger.warning(f"No meaningful content extracted from {url}")
+                return None
+            
+            full_text = '\n\n'.join(paragraph_texts)
+            
+            # Use RSS title if available, otherwise extract from page
+            title = rss_title
+            if not title:
+                title_element = soup.select_one('h1.single-title')
+                title = title_element.get_text().strip() if title_element else ''
+            
+            if not title:
+                self.logger.warning(f"No title found for {url}")
+                return None
+            
+            # Extract author
+            author = None
+            author_selectors = ['.author-name', 'span.byline']
+            for selector in author_selectors:
+                author_element = soup.select_one(selector)
+                if author_element:
+                    author = author_element.get_text().strip()
+                    break
+            
+            # Extract publication date
+            publication_date = self._extract_publication_date(soup, url)
+            
+            # Create article item
+            article = ArticleItem()
+            article.url = url
+            article.source_name = self.source_name
+            article.title = title
+            article.full_text = full_text
+            article.author = author
+            article.publication_date = publication_date
+            
+            return article
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting content from {url}: {str(e)}")
+            return None
+
+
+class NagarikScraper(BaseNewsScraper):
+    """Scraper for Nagarik News."""
+    
+    def __init__(self) -> None:
+        """Initialize Nagarik News scraper."""
+        super().__init__(
+            name="nagarik",
+            source_name="Nagarik News",
+            rss_url="https://nagariknews.nagariknetwork.com/feed",
+            allowed_domains=["nagariknetwork.com"]
+        )
+    
+    def _extract_article_content(self, soup: BeautifulSoup, url: str, rss_title: str) -> Optional[ArticleItem]:
+        """Extract article content specific to Nagarik News.
+        
+        Args:
+            soup: BeautifulSoup object of the article page.
+            url: URL of the article.
+            rss_title: Title from RSS feed.
+            
+        Returns:
+            ArticleItem if extraction successful, None otherwise.
+        """
+        try:
+            # Extract content paragraphs - try specific selector first
+            paragraphs = soup.select('.content-wrapper p')
+            
+            if not paragraphs:
+                # Fallback to generic paragraph selector with filtering
+                all_paragraphs = soup.select('p')
+                paragraphs = []
+                
+                for p in all_paragraphs:
+                    text = p.get_text().strip()
+                    # Filter out short paragraphs and UI elements
+                    if (text and len(text) > 50 and 
+                        'नागरिक अभिलेखालय' not in text and 
+                        'Please Enable javascript' not in text and
+                        'Subscribe' not in text):
+                        paragraphs.append(p)
+            
+            if not paragraphs:
+                self.logger.warning(f"No content found for {url}")
+                return None
+            
+            # Extract text from paragraphs
+            paragraph_texts = []
+            for p in paragraphs:
+                text = p.get_text().strip()
+                if text:
+                    paragraph_texts.append(text)
+            
+            if not paragraph_texts:
+                self.logger.warning(f"No meaningful content extracted from {url}")
+                return None
+            
+            full_text = '\n\n'.join(paragraph_texts)
+            
+            # Use RSS title if available, otherwise extract from page
+            title = rss_title
+            if not title:
+                title_element = soup.select_one('h1')
+                title = title_element.get_text().strip() if title_element else ''
+            
+            if not title:
+                self.logger.warning(f"No title found for {url}")
+                return None
+            
+            # Extract author
+            author = None
+            author_element = soup.select_one('.article-author')
+            if author_element:
+                author = author_element.get_text().strip()
+            
+            # Extract publication date
+            publication_date = self._extract_publication_date(soup, url)
+            
+            # Create article item
+            article = ArticleItem()
+            article.url = url
+            article.source_name = self.source_name
+            article.title = title
+            article.full_text = full_text
+            article.author = author
+            article.publication_date = publication_date
+            
+            return article
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting content from {url}: {str(e)}")
+            return None
+
+
+class UnifiedNewsScraper:
+    """Unified scraper that coordinates multiple news source scrapers."""
+    
+    def __init__(self, output_dir: str = "data", output_format: str = "both", 
+                 keywords: Optional[List[str]] = None) -> None:
+        """Initialize the unified scraper.
+        
+        Args:
+            output_dir: Directory to save output files.
+            output_format: Output format ('json', 'csv', or 'both').
+            keywords: Optional list of keywords to filter articles.
+        """
+        self.output_dir = output_dir
+        self.output_format = output_format.lower()
+        self.keywords = keywords
+        self.scrapers = {
+            'kathmandupost': KathmanduPostScraper(),
+            'annapurna': AnnapurnaScraper(),
+            'nagarik': NagarikScraper()
+        }
+        
+        # Ensure output directory exists
+        os.makedirs(self.output_dir, exist_ok=True)
+    
+    def scrape_all_sources(self, max_articles_per_source: int = 50) -> Dict[str, List[ArticleItem]]:
+        """Scrape articles from all configured sources.
+        
+        Args:
+            max_articles_per_source: Maximum articles to scrape per source.
+            
+        Returns:
+            Dictionary mapping source names to lists of articles.
+        """
+        logger.info("Starting unified news scraping...")
+        
+        all_articles = {}
+        
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_source = {
+                executor.submit(scraper.scrape_articles, max_articles_per_source, self.keywords): source
+                for source, scraper in self.scrapers.items()
+            }
+            
+            for future in as_completed(future_to_source):
+                source = future_to_source[future]
+                try:
+                    articles = future.result()
+                    all_articles[source] = articles
+                    logger.info(f"Completed scraping {len(articles)} articles from {source}")
+                except Exception as e:
+                    logger.error(f"Error scraping {source}: {str(e)}")
+                    all_articles[source] = []
+        
+        return all_articles
+    
+    def scrape_sources(self, sources: List[str], max_articles_per_source: int = 50) -> Dict[str, List[ArticleItem]]:
+        """Scrape articles from specified sources.
+        
+        Args:
+            sources: List of source names to scrape.
+            max_articles_per_source: Maximum articles to scrape per source.
+            
+        Returns:
+            Dictionary mapping source names to lists of articles.
+        """
+        logger.info(f"Starting scraping for sources: {', '.join(sources)}")
+        
+        all_articles = {}
+        
+        # Filter scrapers to only requested sources
+        selected_scrapers = {
+            source: scraper for source, scraper in self.scrapers.items() 
+            if source in sources
+        }
+        
+        if not selected_scrapers:
+            logger.error(f"No valid sources found. Available sources: {list(self.scrapers.keys())}")
+            return all_articles
+        
+        with ThreadPoolExecutor(max_workers=len(selected_scrapers)) as executor:
+            future_to_source = {
+                executor.submit(scraper.scrape_articles, max_articles_per_source, self.keywords): source
+                for source, scraper in selected_scrapers.items()
+            }
+            
+            for future in as_completed(future_to_source):
+                source = future_to_source[future]
+                try:
+                    articles = future.result()
+                    all_articles[source] = articles
+                    logger.info(f"Completed scraping {len(articles)} articles from {source}")
+                except Exception as e:
+                    logger.error(f"Error scraping {source}: {str(e)}")
+                    all_articles[source] = []
+        
+        return all_articles
+    
+    def save_articles(self, all_articles: Dict[str, List[ArticleItem]]) -> None:
+        """Save scraped articles to disk.
+        
+        Args:
+            all_articles: Dictionary mapping source names to article lists.
+        """
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        # Save each source separately
+        for source, articles in all_articles.items():
+            if not articles:
+                logger.warning(f"No articles to save for {source}")
+                continue
+            
+            # Convert articles to dictionaries
+            articles_data = [article.to_dict() for article in articles]
+            
+            if self.output_format in ('json', 'both'):
+                json_filename = f"articles_{source}_{timestamp}.json"
+                json_path = os.path.join(self.output_dir, json_filename)
+                
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(articles_data, f, ensure_ascii=False, indent=2)
+                
+                logger.info(f"Saved {len(articles)} articles from {source} to {json_path}")
+            
+            if self.output_format in ('csv', 'both'):
+                csv_filename = f"articles_{source}_{timestamp}.csv"
+                csv_path = os.path.join(self.output_dir, csv_filename)
+                
+                if articles_data:
+                    with open(csv_path, 'w', encoding='utf-8', newline='') as f:
+                        writer = csv.DictWriter(f, fieldnames=articles_data[0].keys())
+                        writer.writeheader()
+                        writer.writerows(articles_data)
+                    
+                    logger.info(f"Saved {len(articles)} articles from {source} to {csv_path}")
+        
+        # Also save unified file with all articles
+        all_articles_combined = []
+        for articles in all_articles.values():
+            all_articles_combined.extend(article.to_dict() for article in articles)
+        
+        if all_articles_combined:
+            if self.output_format in ('json', 'both'):
+                unified_json_path = os.path.join(self.output_dir, f"all_articles_unified_{timestamp}.json")
+                with open(unified_json_path, 'w', encoding='utf-8') as f:
+                    json.dump(all_articles_combined, f, ensure_ascii=False, indent=2)
+                logger.info(f"Saved {len(all_articles_combined)} unified articles to {unified_json_path}")
+            
+            if self.output_format in ('csv', 'both'):
+                unified_csv_path = os.path.join(self.output_dir, f"all_articles_unified_{timestamp}.csv")
+                with open(unified_csv_path, 'w', encoding='utf-8', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=all_articles_combined[0].keys())
+                    writer.writeheader()
+                    writer.writerows(all_articles_combined)
+                logger.info(f"Saved {len(all_articles_combined)} unified articles to {unified_csv_path}")
+
+
+def main() -> None:
+    """Main function to run the unified news scraper."""
+    parser = argparse.ArgumentParser(
+        description="Unified News Scraper for Nepali News Sources",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python unified_news_scraper.py
+  python unified_news_scraper.py --sources kathmandupost,nagarik
+  python unified_news_scraper.py --output-dir data --format json --max-articles 30
+  python unified_news_scraper.py --keywords "KP Oli,government,politics"
+  python unified_news_scraper.py --sources kathmandupost --keywords "Nepal,economy" --max-articles 20
+        """
+    )
+    
+    parser.add_argument(
+        '--sources',
+        type=str,
+        default='kathmandupost,annapurna,nagarik',
+        help='Comma-separated list of sources to scrape (default: all sources)'
+    )
+    
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        default='data',
+        help='Output directory for scraped articles (default: data)'
+    )
+    
+    parser.add_argument(
+        '--format',
+        type=str,
+        choices=['json', 'csv', 'both'],
+        default='both',
+        help='Output format (default: both)'
+    )
+    
+    parser.add_argument(
+        '--max-articles',
+        type=int,
+        default=50,
+        help='Maximum articles to scrape per source (default: 50)'
+    )
+    
+    parser.add_argument(
+        '--log-level',
+        type=str,
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+        default='INFO',
+        help='Logging level (default: INFO)'
+    )
+    
+    parser.add_argument(
+        '--keywords',
+        type=str,
+        help='Comma-separated list of keywords to filter articles (e.g., "KP Oli,government,politics")'
+    )
+    
+    args = parser.parse_args()
+    
+    # Set logging level
+    logging.getLogger().setLevel(getattr(logging, args.log_level))
+    
+    # Parse sources
+    sources = [s.strip() for s in args.sources.split(',') if s.strip()]
+    
+    # Parse keywords
+    keywords = None
+    if args.keywords:
+        keywords = [k.strip() for k in args.keywords.split(',') if k.strip()]
+        logger.info(f"Filtering articles with keywords: {', '.join(keywords)}")
+    
+    # Initialize scraper
+    scraper = UnifiedNewsScraper(
+        output_dir=args.output_dir,
+        output_format=args.format,
+        keywords=keywords
+    )
+    
+    # Validate sources
+    available_sources = list(scraper.scrapers.keys())
+    invalid_sources = [s for s in sources if s not in available_sources]
+    if invalid_sources:
+        logger.error(f"Invalid sources: {invalid_sources}. Available sources: {available_sources}")
+        sys.exit(1)
+    
+    try:
+        # Scrape articles
+        if set(sources) == set(available_sources):
+            all_articles = scraper.scrape_all_sources(args.max_articles)
+        else:
+            all_articles = scraper.scrape_sources(sources, args.max_articles)
+        
+        # Save articles
+        scraper.save_articles(all_articles)
+        
+        # Print summary
+        total_articles = sum(len(articles) for articles in all_articles.values())
+        if keywords:
+            logger.info(f"Successfully scraped {total_articles} articles total (filtered by keywords: {', '.join(keywords)})")
+        else:
+            logger.info(f"Successfully scraped {total_articles} articles total")
+        
+        for source, articles in all_articles.items():
+            logger.info(f"  {source}: {len(articles)} articles")
+    
+    except KeyboardInterrupt:
+        logger.info("Scraping interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
