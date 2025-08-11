@@ -14,14 +14,12 @@ const Navbar = () => {
     <nav className="bg-white shadow-lg">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex justify-between items-center h-16">
-          {/* Logo */}
           <div className="flex items-center space-x-2">
             <span className="text-xl font-bold text-gray-800">
               Political Sentiment Analysis
             </span>
           </div>
 
-          {/* Navigation Links */}
           <div className="flex items-center space-x-1">
             {navItems.map(({ path, label, icon: Icon }) => (
               <Link

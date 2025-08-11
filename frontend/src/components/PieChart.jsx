@@ -10,12 +10,12 @@ const PieChart = ({ data, title, colors }) => {
       {
         data: Object.values(data).map((val) => (val * 100).toFixed(1)),
         backgroundColor: colors || [
-          "#22c55e", // Green
-          "#ef4444", // Red
-          "#6b7280", // Gray
-          "#3b82f6", // Blue
-          "#f59e0b", // Yellow
-          "#ec4899", // Pink
+          "#22c55e", 
+          "#ef4444", 
+          "#6b7280", 
+          "#3b82f6", 
+          "#f59e0b", 
+          "#ec4899",
         ],
         borderWidth: 2,
         borderColor: "#ffffff",

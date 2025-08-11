@@ -52,7 +52,6 @@ const TwitterAnalysis = () => {
 
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div className="text-center">
         <h1 className="text-3xl font-bold text-gray-900 mb-4 flex items-center justify-center gap-2">
           Twitter Sentiment & Emotion Analysis
@@ -63,7 +62,6 @@ const TwitterAnalysis = () => {
         </p>
       </div>
 
-      {/* Search Form */}
       <div className="bg-white rounded-lg shadow-lg p-6">
         <form
           onSubmit={handleSubmit}
@@ -96,7 +94,6 @@ const TwitterAnalysis = () => {
         </form>
       </div>
 
-      {/* Loading State */}
       {loading && (
         <div className="bg-white rounded-lg shadow-lg">
           <LoadingSpinner
@@ -106,10 +103,8 @@ const TwitterAnalysis = () => {
         </div>
       )}
 
-      {/* Results */}
       {results && !loading && (
         <div className="space-y-8 fade-in">
-          {/* Stats Overview */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <StatsCard
               title="Total Tweets"
@@ -140,9 +135,7 @@ const TwitterAnalysis = () => {
             />
           </div>
 
-          {/* Distribution Grids */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Sentiment Distribution */}
             <div className="bg-white rounded-lg shadow-lg p-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-4">
                 {" "}
@@ -179,7 +172,6 @@ const TwitterAnalysis = () => {
               </div>
             </div>
 
-            {/* Emotion Distribution */}
             {results.emotion_counts &&
               Object.keys(results.emotion_counts).length > 0 && (
                 <div className="bg-white rounded-lg shadow-lg p-6">
@@ -221,7 +213,6 @@ const TwitterAnalysis = () => {
               )}
           </div>
 
-          {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <PieChart
               data={results.sentiment_counts}
@@ -240,9 +231,7 @@ const TwitterAnalysis = () => {
               )}
           </div>
 
-          {/* Top Tweets */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Positive Tweets */}
             <div className="bg-green-50 border border-green-200 rounded-lg p-6">
               <h3 className="text-lg font-semibold text-green-700 mb-4">
                 Top Positive Tweets ({results.top_positive.length})
@@ -259,7 +248,6 @@ const TwitterAnalysis = () => {
               </div>
             </div>
 
-            {/* Negative Tweets */}
             <div className="bg-red-50 border border-red-200 rounded-lg p-6">
               <h3 className="text-lg font-semibold text-red-700 mb-4">
                 Top Negative Tweets ({results.top_negative.length})
@@ -277,7 +265,6 @@ const TwitterAnalysis = () => {
             </div>
           </div>
 
-          {/* Word Clouds */}
           {results.word_data && (
             <div className="mt-8">
               <h2 className="text-2xl font-bold text-gray-800 mb-6">
@@ -342,7 +329,6 @@ const TwitterAnalysis = () => {
                   )}
               </div>
 
-              {/* Emotion Word Clouds */}
               {results.word_data.emotions &&
                 Object.keys(results.word_data.emotions).length > 0 && (
                   <div className="mt-6">
@@ -386,7 +372,6 @@ const TwitterAnalysis = () => {
             </div>
           )}
 
-          {/* Emotion Examples */}
           {results.top_emotions &&
             Object.keys(results.top_emotions).length > 0 && (
               <div className="mt-8">

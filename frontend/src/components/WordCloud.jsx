@@ -27,27 +27,23 @@ const WordCloud = ({
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
 
-    // Clear canvas
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, width, height);
 
-    // Combine all text and get word frequencies
     const text = words.join(" ");
     const wordMap = {};
 
-    // Simple word extraction and counting
     const cleanWords = text
       .toLowerCase()
-      .replace(/[^\u0900-\u097F\u0980-\u09FF\s]/g, "") // Keep Devanagari and Bengali scripts
+      .replace(/[^\u0900-\u097F\u0980-\u09FF\s]/g, "") 
       .split(/\s+/)
-      .filter((word) => word.length > 2); // Filter short words
+      .filter((word) => word.length > 2); 
 
     cleanWords.forEach((word) => {
       wordMap[word] = (wordMap[word] || 0) + 1;
     });
 
-    // Get top words
     const sortedWords = Object.entries(wordMap)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 30);
@@ -57,7 +53,6 @@ const WordCloud = ({
     const colors = colorSchemes[sentiment] || colorSchemes.overall;
     const maxCount = sortedWords[0][1];
 
-    // Simple word cloud layout
     const words_to_draw = sortedWords.map(([word, count], index) => {
       const fontSize = Math.max(12, (count / maxCount) * 32);
       return {
@@ -70,7 +65,6 @@ const WordCloud = ({
       };
     });
 
-    // Draw words
     words_to_draw.forEach((wordObj) => {
       ctx.font = `${wordObj.fontSize}px Arial`;
       ctx.fillStyle = wordObj.color;

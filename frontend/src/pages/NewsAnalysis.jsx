@@ -21,7 +21,7 @@ const NewsAnalysis = () => {
   });
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
-  const [sentimentFilter, setSentimentFilter] = useState("all"); // 'all', 'positive', 'negative', 'neutral'
+  const [sentimentFilter, setSentimentFilter] = useState("all");
 
   const emotionColors = {
     anger: "#ef4444",
@@ -98,7 +98,6 @@ const NewsAnalysis = () => {
 
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div className="text-center">
         <h1 className="text-3xl font-bold text-gray-900 mb-4 flex items-center justify-center gap-2">
           News Sentiment & Emotion Analysis
@@ -109,11 +108,9 @@ const NewsAnalysis = () => {
         </p>
       </div>
 
-      {/* Search Form */}
       <div className="bg-white rounded-lg shadow-lg p-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* News Sources */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-3">
                 News Sources
@@ -134,7 +131,6 @@ const NewsAnalysis = () => {
               </div>
             </div>
 
-            {/* Keywords */}
             <div>
               <label
                 htmlFor="keywords"
@@ -158,7 +154,6 @@ const NewsAnalysis = () => {
               </p>
             </div>
 
-            {/* Max Articles */}
             <div>
               <label
                 htmlFor="max_articles"
@@ -205,7 +200,6 @@ const NewsAnalysis = () => {
         </form>
       </div>
 
-      {/* Loading State */}
       {loading && (
         <div className="bg-white rounded-lg shadow-lg">
           <LoadingSpinner
@@ -215,10 +209,8 @@ const NewsAnalysis = () => {
         </div>
       )}
 
-      {/* Results */}
       {results && !loading && (
         <div className="space-y-8 fade-in">
-          {/* Stats Overview */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <StatsCard
               title="Total Articles"
@@ -248,7 +240,6 @@ const NewsAnalysis = () => {
               color="primary"
             />
           </div>
-          {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
             <PieChart
               data={results.sentiment_counts}
@@ -276,7 +267,6 @@ const NewsAnalysis = () => {
                         </span>
                       </h3>
 
-                      {/* Sentiment Distribution for Source */}
                       <div className="mb-4">
                         <h4 className="text-sm font-medium text-gray-700 mb-2">
                           Sentiment Distribution
@@ -304,7 +294,6 @@ const NewsAnalysis = () => {
                         </div>
                       </div>
 
-                      {/* Emotion Distribution for Source */}
                       {analysis.emotion_distribution &&
                         Object.keys(analysis.emotion_distribution).length >
                           0 && (
@@ -342,7 +331,6 @@ const NewsAnalysis = () => {
                           </div>
                         )}
 
-                      {/* Confidence Scores */}
                       <div className="text-xs text-gray-600 space-y-1">
                         <div>
                           Avg Sentiment Confidence:{" "}
@@ -358,7 +346,6 @@ const NewsAnalysis = () => {
                         )}
                       </div>
 
-                      {/* Sample Articles */}
                       {analysis.top_positive.length > 0 && (
                         <div className="mt-3">
                           <h4 className="text-xs font-medium text-gray-700 mb-1">
@@ -387,7 +374,6 @@ const NewsAnalysis = () => {
               </div>
             </div>
           )}
-          {/* Top Articles with Sentiment Meters and Filtering */}
           {results && (results.top_articles || results.all_articles) && (
             <div className="mt-8">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
@@ -395,7 +381,6 @@ const NewsAnalysis = () => {
                   📰 Top Articles by Confidence
                 </h2>
 
-                {/* Sentiment Filter */}
                 <div className="flex items-center gap-2">
                   <Filter className="w-4 h-4 text-gray-600" />
                   <select
@@ -418,7 +403,6 @@ const NewsAnalysis = () => {
                     className="bg-white rounded-lg shadow-lg p-6 border"
                   >
                     <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                      {/* Article Content */}
                       <div className="flex-1">
                         <h3 className="text-lg font-semibold text-gray-800 mb-2">
                           <a
@@ -449,9 +433,7 @@ const NewsAnalysis = () => {
                         </p>
                       </div>
 
-                      {/* Sentiment & Emotion Meters */}
                       <div className="lg:w-64 flex-shrink-0">
-                        {/* Sentiment Meter */}
                         <div className="bg-gray-50 rounded-lg p-4 mb-3">
                           <h4 className="text-sm font-semibold text-gray-700 mb-2">
                             Sentiment
@@ -472,7 +454,6 @@ const NewsAnalysis = () => {
                               {(article.confidence * 100).toFixed(1)}%
                             </span>
                           </div>
-                          {/* Sentiment Meter Bar */}
                           <div className="w-full bg-gray-200 rounded-full h-2">
                             <div
                               className={`h-2 rounded-full ${
@@ -487,7 +468,6 @@ const NewsAnalysis = () => {
                           </div>
                         </div>
 
-                        {/* Emotion Meter */}
                         <div className="bg-gray-50 rounded-lg p-4">
                           <h4 className="text-sm font-semibold text-gray-700 mb-2">
                             Emotion
@@ -519,7 +499,6 @@ const NewsAnalysis = () => {
                                 : "N/A"}
                             </span>
                           </div>
-                          {/* Emotion Meter Bar */}
                           {article.emotion_confidence && (
                             <div className="w-full bg-gray-200 rounded-full h-2">
                               <div
@@ -532,7 +511,6 @@ const NewsAnalysis = () => {
                           )}
                         </div>
 
-                        {/* Rank Badge */}
                         <div className="mt-3 text-center">
                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             #{index + 1} Most Confident
@@ -546,7 +524,6 @@ const NewsAnalysis = () => {
             </div>
           )}
 
-          {/* Emotion Examples */}
           {results.top_emotions &&
             Object.keys(results.top_emotions).length > 0 && (
               <div className="mt-8">

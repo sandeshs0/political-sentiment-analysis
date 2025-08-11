@@ -1,7 +1,6 @@
 const Dashboard = () => {
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div className="text-center">
         <h1 className="text-4xl font-bold text-gray-900 mb-4">
           Data Driven Analysis of Political Sentiment across Social Media and News for Public Opinion Insights
@@ -24,7 +23,6 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Models Information */}
       <div className="bg-white rounded-lg shadow-lg p-8">
         <h2 className="text-2xl font-bold text-gray-900 mb-6">
           Machine Learning Models
