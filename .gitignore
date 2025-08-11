@@ -1,2 +1,8 @@
 nepali-sentiment-model-xlmr/model.safetensors
 *.safetensors
+
+*.csv
+*.xlsx
+
+__pycache__/
+*.pyc

@@ -13,13 +13,21 @@
       <div class="max-w-7xl mx-auto px-4">
         <div class="flex justify-between h-16">
           <div class="flex items-center">
-            <h1 class="text-xl font-semibold text-gray-800">📊 Nepali Sentiment & Emotion Dashboard</h1>
+            <h1 class="text-xl font-semibold text-gray-800">
+              📊 Nepali Sentiment & Emotion Dashboard
+            </h1>
           </div>
           <div class="flex items-center space-x-4">
-            <a href="/" class="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium">
+            <a
+              href="/"
+              class="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium"
+            >
               🐦 Twitter Analysis
             </a>
-            <a href="/news" class="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium bg-blue-100">
+            <a
+              href="/news"
+              class="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium bg-blue-100"
+            >
               📰 News Analysis
             </a>
           </div>
@@ -28,31 +36,37 @@
     </nav>
 
     <div class="max-w-6xl mx-auto py-6 px-4">
-      <h1 class="text-3xl md:text-4xl font-bold text-center text-indigo-600 mb-8">
+      <h1
+        class="text-3xl md:text-4xl font-bold text-center text-indigo-600 mb-8"
+      >
         📰 Nepali News Sentiment & Emotion Analysis
       </h1>
 
       <!-- Search Form -->
       <form method="POST" class="bg-white rounded-lg shadow-lg p-6 mb-8">
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-          
           <!-- News Sources -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">News Sources</label>
+            <label class="block text-sm font-medium text-gray-700 mb-2"
+              >News Sources</label
+            >
             <div class="space-y-2">
               <label class="flex items-center">
-                <input type="checkbox" name="sources" value="kathmandupost" class="mr-2" 
-                       {% if not sources or 'kathmandupost' in sources %}checked{% endif %}>
+                <input type="checkbox" name="sources" value="kathmandupost"
+                class="mr-2" {% if not sources or 'kathmandupost' in sources
+                %}checked{% endif %}>
                 <span class="text-sm">The Kathmandu Post</span>
               </label>
               <label class="flex items-center">
-                <input type="checkbox" name="sources" value="annapurna" class="mr-2"
-                       {% if not sources or 'annapurna' in sources %}checked{% endif %}>
+                <input type="checkbox" name="sources" value="annapurna"
+                class="mr-2" {% if not sources or 'annapurna' in sources
+                %}checked{% endif %}>
                 <span class="text-sm">Annapurna Express</span>
               </label>
               <label class="flex items-center">
-                <input type="checkbox" name="sources" value="nagarik" class="mr-2"
-                       {% if not sources or 'nagarik' in sources %}checked{% endif %}>
+                <input type="checkbox" name="sources" value="nagarik"
+                class="mr-2" {% if not sources or 'nagarik' in sources
+                %}checked{% endif %}>
                 <span class="text-sm">Nagarik News</span>
               </label>
             </div>
@@ -60,7 +74,10 @@
 
           <!-- Keywords -->
           <div>
-            <label for="keywords" class="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              for="keywords"
+              class="block text-sm font-medium text-gray-700 mb-2"
+            >
               Keywords (comma-separated)
             </label>
             <input
@@ -71,12 +88,17 @@
               placeholder="KP Oli, government, politics"
               class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            <p class="text-xs text-gray-500 mt-1">Optional: Filter articles by keywords</p>
+            <p class="text-xs text-gray-500 mt-1">
+              Optional: Filter articles by keywords
+            </p>
           </div>
 
           <!-- Max Articles -->
           <div>
-            <label for="max_articles" class="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              for="max_articles"
+              class="block text-sm font-medium text-gray-700 mb-2"
+            >
               Max Articles per Source
             </label>
             <select
@@ -103,55 +125,75 @@
       </form>
 
       {% if error_message %}
-      <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+      <div
+        class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6"
+      >
         <strong>Error:</strong> {{ error_message }}
       </div>
-      {% endif %}
-
-      {% if analytics %}
+      {% endif %} {% if analytics %}
       <!-- Summary Statistics -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <div class="bg-white rounded-lg shadow-lg p-6 text-center">
-          <h3 class="text-lg font-semibold text-gray-800 mb-2">📄 Total Articles</h3>
+          <h3 class="text-lg font-semibold text-gray-800 mb-2">
+            📄 Total Articles
+          </h3>
           <p class="text-3xl font-bold text-indigo-600">{{ total_articles }}</p>
         </div>
-        
+
         <div class="bg-white rounded-lg shadow-lg p-6 text-center">
-          <h3 class="text-lg font-semibold text-gray-800 mb-2">😊 Avg Sentiment Confidence</h3>
-          <p class="text-3xl font-bold text-green-600">{{ "%.1f"|format(analytics.avg_confidence.overall * 100) }}%</p>
-        </div>
-        
-        <div class="bg-white rounded-lg shadow-lg p-6 text-center">
-          <h3 class="text-lg font-semibold text-gray-800 mb-2">🎭 Most Common Emotion</h3>
-          <p class="text-2xl font-bold text-purple-600">
-            {% if analytics.emotion_distribution %}
-              {% set top_emotion = analytics.emotion_distribution.keys() | list | first %}
-              {% if top_emotion == 'anger' %}😠 Anger{% elif top_emotion == 'fear' %}😨 Fear{% elif top_emotion == 'joy' %}😊 Joy{% elif top_emotion == 'love' %}❤️ Love{% elif top_emotion == 'sadness' %}😢 Sadness{% elif top_emotion == 'surprise' %}😮 Surprise{% else %}{{ top_emotion.title() }}{% endif %}
-            {% else %}
-              N/A
-            {% endif %}
+          <h3 class="text-lg font-semibold text-gray-800 mb-2">
+            😊 Avg Sentiment Confidence
+          </h3>
+          <p class="text-3xl font-bold text-green-600">
+            {{ "%.1f"|format(analytics.avg_confidence.overall * 100) }}%
           </p>
         </div>
-        
+
         <div class="bg-white rounded-lg shadow-lg p-6 text-center">
-          <h3 class="text-lg font-semibold text-gray-800 mb-2">📊 Most Common Sentiment</h3>
-          <p class="text-2xl font-bold text-blue-600">{{ analytics.summary.most_common_sentiment }}</p>
+          <h3 class="text-lg font-semibold text-gray-800 mb-2">
+            🎭 Most Common Emotion
+          </h3>
+          <p class="text-2xl font-bold text-purple-600">
+            {% if analytics.emotion_distribution %} {% set top_emotion =
+            analytics.emotion_distribution.keys() | list | first %} {% if
+            top_emotion == 'anger' %}😠 Anger{% elif top_emotion == 'fear' %}😨
+            Fear{% elif top_emotion == 'joy' %}😊 Joy{% elif top_emotion ==
+            'love' %}❤️ Love{% elif top_emotion == 'sadness' %}😢 Sadness{% elif
+            top_emotion == 'surprise' %}😮 Surprise{% else %}{{
+            top_emotion.title() }}{% endif %} {% else %} N/A {% endif %}
+          </p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-lg p-6 text-center">
+          <h3 class="text-lg font-semibold text-gray-800 mb-2">
+            📊 Most Common Sentiment
+          </h3>
+          <p class="text-2xl font-bold text-blue-600">
+            {{ analytics.summary.most_common_sentiment }}
+          </p>
         </div>
       </div>
 
       <!-- Sentiment and Emotion Distribution -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        
         <!-- Sentiment Distribution -->
         <div class="bg-white rounded-lg shadow-lg p-6">
-          <h3 class="text-lg font-semibold text-gray-800 mb-4">📊 Sentiment Distribution</h3>
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">
+            📊 Sentiment Distribution
+          </h3>
           <div class="grid grid-cols-3 gap-2 text-center">
             {% for sentiment, percentage in sentiment_counts.items() %}
-            <div class="p-3 rounded-lg {% if sentiment == 'Positive' %}bg-green-100{% elif sentiment == 'Negative' %}bg-red-100{% else %}bg-gray-100{% endif %}">
-              <div class="text-lg font-bold {% if sentiment == 'Positive' %}text-green-700{% elif sentiment == 'Negative' %}text-red-700{% else %}text-gray-700{% endif %}">
+            <div
+              class="p-3 rounded-lg {% if sentiment == 'Positive' %}bg-green-100{% elif sentiment == 'Negative' %}bg-red-100{% else %}bg-gray-100{% endif %}"
+            >
+              <div
+                class="text-lg font-bold {% if sentiment == 'Positive' %}text-green-700{% elif sentiment == 'Negative' %}text-red-700{% else %}text-gray-700{% endif %}"
+              >
                 {{ "%.1f"|format(percentage * 100) }}%
               </div>
-              <div class="text-xs {% if sentiment == 'Positive' %}text-green-600{% elif sentiment == 'Negative' %}text-red-600{% else %}text-gray-600{% endif %}">
+              <div
+                class="text-xs {% if sentiment == 'Positive' %}text-green-600{% elif sentiment == 'Negative' %}text-red-600{% else %}text-gray-600{% endif %}"
+              >
                 {{ sentiment }}
               </div>
             </div>
@@ -162,33 +204,36 @@
         <!-- Emotion Distribution -->
         {% if emotion_counts %}
         <div class="bg-white rounded-lg shadow-lg p-6 lg:col-span-2">
-          <h3 class="text-lg font-semibold text-gray-800 mb-4">🎭 Emotion Distribution</h3>
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">
+            🎭 Emotion Distribution
+          </h3>
           <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-center">
             {% for emotion, percentage in emotion_counts.items() %}
             <div class="p-3 rounded-lg bg-gray-50">
               <div class="text-2xl mb-1">
-                {% if emotion == 'anger' %}😠{% elif emotion == 'fear' %}😨{% elif emotion == 'joy' %}😊{% elif emotion == 'love' %}❤️{% elif emotion == 'sadness' %}😢{% elif emotion == 'surprise' %}😮{% else %}😶{% endif %}
+                {% if emotion == 'anger' %}😠{% elif emotion == 'fear' %}😨{%
+                elif emotion == 'joy' %}😊{% elif emotion == 'love' %}❤️{% elif
+                emotion == 'sadness' %}😢{% elif emotion == 'surprise' %}😮{%
+                else %}😶{% endif %}
               </div>
               <div class="text-lg font-bold text-gray-700">
                 {{ "%.1f"|format(percentage * 100) }}%
               </div>
-              <div class="text-xs text-gray-600">
-                {{ emotion.title() }}
-              </div>
+              <div class="text-xs text-gray-600">{{ emotion.title() }}</div>
             </div>
             {% endfor %}
           </div>
         </div>
         {% endif %}
-
       </div>
 
       <!-- Charts -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        
         <!-- Sentiment Distribution Pie Chart -->
         <div class="bg-white shadow rounded-lg p-6">
-          <h3 class="text-lg font-semibold text-gray-800 mb-4">📊 Sentiment Distribution</h3>
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">
+            📊 Sentiment Distribution
+          </h3>
           <div class="flex justify-center">
             <canvas id="sentimentPieChart" width="300" height="300"></canvas>
           </div>
@@ -197,18 +242,18 @@
         <!-- Emotion Distribution Pie Chart -->
         {% if emotion_counts %}
         <div class="bg-white shadow rounded-lg p-6">
-          <h3 class="text-lg font-semibold text-gray-800 mb-4">🎭 Emotion Distribution</h3>
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">
+            🎭 Emotion Distribution
+          </h3>
           <div class="flex justify-center">
             <canvas id="emotionPieChart" width="300" height="300"></canvas>
           </div>
         </div>
         {% endif %}
-
       </div>
 
       <!-- Top Articles by Sentiment -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        
         <!-- Top Positive Articles -->
         <div class="bg-green-50 border border-green-200 rounded-lg p-6">
           <h3 class="text-lg font-semibold text-green-700 mb-4">
@@ -218,25 +263,44 @@
             {% for article in top_positive %}
             <div class="bg-white p-4 rounded border-l-4 border-green-400">
               <h4 class="font-semibold text-gray-800 mb-2">
-                <a href="{{ article.url }}" target="_blank" class="text-blue-600 hover:text-blue-800">
+                <a
+                  href="{{ article.url }}"
+                  target="_blank"
+                  class="text-blue-600 hover:text-blue-800"
+                >
                   {{ article.title }}
                 </a>
               </h4>
-              <p class="text-sm text-gray-600 mb-2">{{ article.source_name }}</p>
-              <p class="text-sm text-gray-700 mb-3">{{ article.full_text[:150] }}{% if article.full_text|length > 150 %}...{% endif %}</p>
-              <div class="flex flex-wrap justify-between items-center text-xs gap-2">
+              <p class="text-sm text-gray-600 mb-2">
+                {{ article.source_name }}
+              </p>
+              <p class="text-sm text-gray-700 mb-3">
+                {{ article.full_text[:150] }}{% if article.full_text|length >
+                150 %}...{% endif %}
+              </p>
+              <div
+                class="flex flex-wrap justify-between items-center text-xs gap-2"
+              >
                 <div class="flex flex-wrap gap-2">
                   <span class="bg-green-100 text-green-800 px-2 py-1 rounded">
                     📊 Sentiment: {{ article.confidence }}
                   </span>
                   {% if article.emotion_confidence %}
                   <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                    {% if article.emotion == 'anger' %}😠{% elif article.emotion == 'fear' %}😨{% elif article.emotion == 'joy' %}😊{% elif article.emotion == 'love' %}❤️{% elif article.emotion == 'sadness' %}😢{% elif article.emotion == 'surprise' %}😮{% else %}😶{% endif %}
-                    {{ article.emotion.title() }}: {{ article.emotion_confidence }}
+                    {% if article.emotion == 'anger' %}😠{% elif article.emotion
+                    == 'fear' %}😨{% elif article.emotion == 'joy' %}😊{% elif
+                    article.emotion == 'love' %}❤️{% elif article.emotion ==
+                    'sadness' %}😢{% elif article.emotion == 'surprise' %}😮{%
+                    else %}😶{% endif %} {{ article.emotion.title() }}: {{
+                    article.emotion_confidence }}
                   </span>
                   {% endif %}
                 </div>
-                <a href="{{ article.url }}" target="_blank" class="text-blue-600 hover:text-blue-800 font-medium">
+                <a
+                  href="{{ article.url }}"
+                  target="_blank"
+                  class="text-blue-600 hover:text-blue-800 font-medium"
+                >
                   🔗 Read Full Article
                 </a>
               </div>
@@ -254,25 +318,44 @@
             {% for article in top_negative %}
             <div class="bg-white p-4 rounded border-l-4 border-red-400">
               <h4 class="font-semibold text-gray-800 mb-2">
-                <a href="{{ article.url }}" target="_blank" class="text-blue-600 hover:text-blue-800">
+                <a
+                  href="{{ article.url }}"
+                  target="_blank"
+                  class="text-blue-600 hover:text-blue-800"
+                >
                   {{ article.title }}
                 </a>
               </h4>
-              <p class="text-sm text-gray-600 mb-2">{{ article.source_name }}</p>
-              <p class="text-sm text-gray-700 mb-3">{{ article.full_text[:150] }}{% if article.full_text|length > 150 %}...{% endif %}</p>
-              <div class="flex flex-wrap justify-between items-center text-xs gap-2">
+              <p class="text-sm text-gray-600 mb-2">
+                {{ article.source_name }}
+              </p>
+              <p class="text-sm text-gray-700 mb-3">
+                {{ article.full_text[:150] }}{% if article.full_text|length >
+                150 %}...{% endif %}
+              </p>
+              <div
+                class="flex flex-wrap justify-between items-center text-xs gap-2"
+              >
                 <div class="flex flex-wrap gap-2">
                   <span class="bg-red-100 text-red-800 px-2 py-1 rounded">
                     📊 Sentiment: {{ article.confidence }}
                   </span>
                   {% if article.emotion_confidence %}
                   <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                    {% if article.emotion == 'anger' %}😠{% elif article.emotion == 'fear' %}😨{% elif article.emotion == 'joy' %}😊{% elif article.emotion == 'love' %}❤️{% elif article.emotion == 'sadness' %}😢{% elif article.emotion == 'surprise' %}😮{% else %}😶{% endif %}
-                    {{ article.emotion.title() }}: {{ article.emotion_confidence }}
+                    {% if article.emotion == 'anger' %}😠{% elif article.emotion
+                    == 'fear' %}😨{% elif article.emotion == 'joy' %}😊{% elif
+                    article.emotion == 'love' %}❤️{% elif article.emotion ==
+                    'sadness' %}😢{% elif article.emotion == 'surprise' %}😮{%
+                    else %}😶{% endif %} {{ article.emotion.title() }}: {{
+                    article.emotion_confidence }}
                   </span>
                   {% endif %}
                 </div>
-                <a href="{{ article.url }}" target="_blank" class="text-blue-600 hover:text-blue-800 font-medium">
+                <a
+                  href="{{ article.url }}"
+                  target="_blank"
+                  class="text-blue-600 hover:text-blue-800 font-medium"
+                >
                   🔗 Read Full Article
                 </a>
               </div>
@@ -280,35 +363,51 @@
             {% endfor %}
           </div>
         </div>
-
       </div>
 
       <!-- Emotion Examples -->
       {% if top_emotions and emotion_counts %}
       <div class="mt-8">
-        <h2 class="text-2xl font-bold text-gray-800 mb-6">💭 Emotion Examples from News</h2>
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">
+          💭 Emotion Examples from News
+        </h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {% for emotion, articles in top_emotions.items() %}
-          {% if articles %}
+          {% for emotion, articles in top_emotions.items() %} {% if articles %}
           <div class="bg-white rounded-lg shadow-lg p-6">
-            <h3 class="text-lg font-semibold text-gray-800 mb-3 flex items-center">
-              {% if emotion == 'anger' %}😠{% elif emotion == 'fear' %}😨{% elif emotion == 'joy' %}😊{% elif emotion == 'love' %}❤️{% elif emotion == 'sadness' %}😢{% elif emotion == 'surprise' %}😮{% else %}😶{% endif %}
-              {{ emotion.title() }} Articles ({{ articles|length }})
+            <h3
+              class="text-lg font-semibold text-gray-800 mb-3 flex items-center"
+            >
+              {% if emotion == 'anger' %}😠{% elif emotion == 'fear' %}😨{% elif
+              emotion == 'joy' %}😊{% elif emotion == 'love' %}❤️{% elif emotion
+              == 'sadness' %}😢{% elif emotion == 'surprise' %}😮{% else %}😶{%
+              endif %} {{ emotion.title() }} Articles ({{ articles|length }})
             </h3>
             <div class="space-y-3">
               {% for article in articles[:2] %}
               <div class="bg-gray-50 p-3 rounded-lg">
                 <h4 class="text-sm font-medium text-gray-800 mb-1">
-                  <a href="{{ article.url }}" target="_blank" class="text-blue-600 hover:text-blue-800">
-                    {{ article.title[:80] }}{% if article.title|length > 80 %}...{% endif %}
+                  <a
+                    href="{{ article.url }}"
+                    target="_blank"
+                    class="text-blue-600 hover:text-blue-800"
+                  >
+                    {{ article.title[:80] }}{% if article.title|length > 80
+                    %}...{% endif %}
                   </a>
                 </h4>
-                <p class="text-xs text-gray-600 mb-2">{{ article.source_name }}</p>
+                <p class="text-xs text-gray-600 mb-2">
+                  {{ article.source_name }}
+                </p>
                 <div class="flex justify-between items-center">
                   <span class="text-xs text-gray-500">
-                    Confidence: {{ "%.1f"|format(article.emotion_confidence * 100) }}%
+                    Confidence: {{ "%.1f"|format(article.emotion_confidence *
+                    100) }}%
                   </span>
-                  <a href="{{ article.url }}" target="_blank" class="text-xs text-blue-600 hover:text-blue-800">
+                  <a
+                    href="{{ article.url }}"
+                    target="_blank"
+                    class="text-xs text-blue-600 hover:text-blue-800"
+                  >
                     🔗 Read
                   </a>
                 </div>
@@ -316,13 +415,10 @@
               {% endfor %}
             </div>
           </div>
-          {% endif %}
-          {% endfor %}
+          {% endif %} {% endfor %}
         </div>
       </div>
-      {% endif %}
-
-      {% endif %}
+      {% endif %} {% endif %}
     </div>
 
     <!-- Chart.js Scripts -->
@@ -331,7 +427,7 @@
       // Sentiment Distribution Pie Chart
       const sentimentCtx = document.getElementById('sentimentPieChart').getContext('2d');
       const sentimentData = {{ sentiment_counts | tojson }};
-      
+
       new Chart(sentimentCtx, {
         type: 'pie',
         data: {
@@ -340,7 +436,7 @@
             data: Object.values(sentimentData).map(val => (val * 100).toFixed(1)),
             backgroundColor: [
               '#22c55e',  // Positive - Green
-              '#ef4444',  // Negative - Red  
+              '#ef4444',  // Negative - Red
               '#6b7280'   // Neutral - Gray
             ],
             borderWidth: 2,
@@ -375,7 +471,7 @@
       // Emotion Distribution Pie Chart
       const emotionCtx = document.getElementById('emotionPieChart').getContext('2d');
       const emotionData = {{ emotion_counts | tojson }};
-      
+
       const emotionColors = {
         'anger': '#ef4444',    // Red
         'fear': '#8b5cf6',     // Purple
@@ -384,7 +480,7 @@
         'sadness': '#3b82f6',  // Blue
         'surprise': '#10b981'  // Green
       };
-      
+
       new Chart(emotionCtx, {
         type: 'pie',
         data: {
