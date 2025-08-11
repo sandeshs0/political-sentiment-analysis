@@ -1049,10 +1049,7 @@ def api_analyze_news():
 
 if __name__ == "__main__":
     print(" Starting Nepali Political Sentiment Analysis App...")
-    
-    
-    create_missing_files()
-    
+
     
     if not validate_required_files():
         print("Some required files are missing. Created basic versions.")
